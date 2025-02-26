@@ -8,7 +8,7 @@ export default function Navbar() {
         <div className="container mx-auto px-4">
           <div className="flex items-center justify-between h-16">
             <Link to="/" className="flex items-center gap-2">
-              <AtomIcon className="w-6 h-6" /><span className="font-bold font-space-grotesk">INOS</span> 
+              <AtomIcon className="w-6 h-6" /><span className="font-bold font-space-grotesk">FLUXOS</span> 
             </Link>
             <nav className="hidden md:flex items-center gap-6">
               <Link to="/research" className="text-md text-black hover:text-white transition-colors font-space-grotesk">

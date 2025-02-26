@@ -39,7 +39,7 @@ export default function WalletConnect() {
         <div className="flex justify-between items-center h-16">
           <div className="flex items-center">
        <AtomIcon className='w-6 h-6'/>
-            <span className="ml-2 text-xl font-semibold font-space-grotesk">INOS</span>
+            <span className="ml-2 text-xl font-semibold font-space-grotesk">FLUXOS</span>
           </div>
           
           <div className="flex items-center gap-2">

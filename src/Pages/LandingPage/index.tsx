@@ -99,23 +99,16 @@ export default function LandingPage() {
               <Button variant="ghost" size="lg" className="rounded-md gap-2 font-space-grotesk">
                 <Play className="w-4 h-4" /> Watch Demo
               </Button>
-
-
-         
-
-
             </div>
           </div>
-
-       
         </div>
       </main>
 
-  {/* Features Grid */}
-  <section className="py-20 relative overflow-hidden">       
-  <div className="absolute inset-0 bg-[linear-gradient(to_right,#8080800a_1px,transparent_1px),linear-gradient(to_bottom,#8080800a_5px,transparent_5px)] bg-[size:80px_80px]"></div>
-    
-        <div className="container px-4 relative">
+      {/* Features Grid */}
+      <section className="w-full py-20 relative overflow-hidden">       
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,#8080800a_1px,transparent_1px),linear-gradient(to_bottom,#8080800a_5px,transparent_5px)] bg-[size:80px_80px]"></div>
+        
+        <div className="w-full max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
             <h2 className="text-4xl font-bold mb-4 text-red-500">{"{INOS}"}</h2>
             <p className="text-gray-500 max-w-2xl mx-auto">
@@ -145,9 +138,9 @@ export default function LandingPage() {
         </div>
       </section>
 
-       {/* Features Grid - Interactive Trading Platform Style */}
-      <section className="py-20 relative overflow-hidden">
-          <div className="container px-4 relative">
+      {/* Features Grid - Interactive Trading Platform Style */}
+      <section className="w-full py-20 relative overflow-hidden">
+        <div className="w-full max-w-[1500px] mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
             <div className="flex items-center justify-center gap-3 mb-4">
               <img src={image1} alt="Powerful Features" className="w-10 h-10" />
@@ -158,10 +151,10 @@ export default function LandingPage() {
             </p>
           </div>
 
-          <div className="grid lg:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-[1500px] mx-auto">
             {/* IFTTT Workflow Builder */}
-            <div className="col-span-1 group border rounded-lg border-red-500">
-              <div className="bg-white/80 backdrop-blur-sm p-6 rounded-2xl border border-gray-100 hover:border-blue-500/20 transition-all duration-300 hover:shadow-[0_0_30px_rgba(59,130,246,0.1)]">
+            <div className="group">
+              <div className="h-full bg-white/80 backdrop-blur-sm p-6 rounded-xl border border-red-500/20 hover:border-blue-500/20 transition-all duration-300 hover:shadow-[0_8px_30px_rgba(59,130,246,0.1)] hover:scale-[1.02]">
                 <div className="flex items-center gap-4 mb-6">
                   <div className="p-3 bg-blue-50 rounded-xl">
                     <ArrowRightLeft className="w-8 h-8 text-blue-600" />
@@ -180,8 +173,8 @@ export default function LandingPage() {
             </div>
 
             {/* Token Launch Wizard */}
-            <div className="col-span-1 group border rounded-lg border-red-500">
-              <div className="bg-white/80 backdrop-blur-sm p-6 rounded-2xl border border-gray-100 hover:border-purple-500/20 transition-all duration-300 hover:shadow-[0_0_30px_rgba(147,51,234,0.1)]">
+            <div className="group">
+              <div className="h-full bg-white/80 backdrop-blur-sm p-6 rounded-xl border border-red-500/20 hover:border-purple-500/20 transition-all duration-300 hover:shadow-[0_8px_30px_rgba(147,51,234,0.1)] hover:scale-[1.02]">
                 <div className="flex items-center gap-4 mb-6">
                   <div className="p-3 bg-purple-50 rounded-xl">
                     <Zap className="w-8 h-8 text-purple-600" />
@@ -208,8 +201,8 @@ export default function LandingPage() {
             </div>
 
             {/* AI Trading Agents */}
-            <div className="col-span-1 group border rounded-lg border-red-500">
-              <div className="bg-white/80 backdrop-blur-sm p-6 rounded-2xl border border-gray-100 hover:border-green-500/20 transition-all duration-300 hover:shadow-[0_0_30px_rgba(34,197,94,0.1)]">
+            <div className="group">
+              <div className="h-full bg-white/80 backdrop-blur-sm p-6 rounded-xl border border-red-500/20 hover:border-green-500/20 transition-all duration-300 hover:shadow-[0_8px_30px_rgba(34,197,94,0.1)] hover:scale-[1.02]">
                 <div className="flex items-center gap-4 mb-6">
                   <div className="p-3 bg-green-50 rounded-xl">
                     <AtomIcon className="w-8 h-8 text-green-600" />
@@ -230,8 +223,8 @@ export default function LandingPage() {
             </div>
 
             {/* Risk Management */}
-            <div className="col-span-1 group border rounded-lg border-red-500">
-              <div className="bg-white/80 backdrop-blur-sm p-6 rounded-2xl border border-gray-100 hover:border-red-500/20 transition-all duration-300 hover:shadow-[0_0_30px_rgba(239,68,68,0.1)]">
+            <div className="group">
+              <div className="h-full bg-white/80 backdrop-blur-sm p-6 rounded-xl border border-red-500/20 hover:border-red-500/20 transition-all duration-300 hover:shadow-[0_8px_30px_rgba(239,68,68,0.1)] hover:scale-[1.02]">
                 <div className="flex items-center gap-4 mb-6">
                   <div className="p-3 bg-red-50 rounded-xl">
                     <Shield className="w-8 h-8 text-red-600" />
@@ -252,8 +245,8 @@ export default function LandingPage() {
             </div>
 
             {/* Strategy Marketplace */}
-            <div className="col-span-1 group border rounded-lg border-red-500">
-              <div className="bg-white/80 backdrop-blur-sm p-6 rounded-2xl border border-gray-100 hover:border-orange-500/20 transition-all duration-300 hover:shadow-[0_0_30px_rgba(249,115,22,0.1)]">
+            <div className="group">
+              <div className="h-full bg-white/80 backdrop-blur-sm p-6 rounded-xl border border-red-500/20 hover:border-orange-500/20 transition-all duration-300 hover:shadow-[0_8px_30px_rgba(249,115,22,0.1)] hover:scale-[1.02]">
                 <div className="flex items-center gap-4 mb-6">
                   <div className="p-3 bg-orange-50 rounded-xl">
                     <Globe className="w-8 h-8 text-orange-600" />
@@ -274,8 +267,8 @@ export default function LandingPage() {
             </div>
 
             {/* Performance Analytics */}
-            <div className="col-span-1 group border rounded-lg border-red-500">
-              <div className="bg-white/80 backdrop-blur-sm p-6 rounded-2xl border border-gray-100 hover:border-cyan-500/20 transition-all duration-300 hover:shadow-[0_0_30px_rgba(6,182,212,0.1)]">
+            <div className="group">
+              <div className="h-full bg-white/80 backdrop-blur-sm p-6 rounded-xl border border-red-500/20 hover:border-cyan-500/20 transition-all duration-300 hover:shadow-[0_8px_30px_rgba(6,182,212,0.1)] hover:scale-[1.02]">
                 <div className="flex items-center gap-4 mb-6">
                   <div className="p-3 bg-cyan-50 rounded-xl">
                     <BarChart3 className="w-8 h-8 text-cyan-600" />
@@ -294,10 +287,9 @@ export default function LandingPage() {
         </div>
       </section>
 
-
       {/* Trading Tools - Clean and modern */}
-      <section className="py-24 bg-white relative overflow-hidden">
-          <div className="container px-4 relative">
+      <section className="w-full py-24 bg-white relative overflow-hidden">
+        <div className="w-full max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
             <h2 className="text-4xl font-bold mb-4">Advanced Trading Tools</h2>
             <p className="text-gray-500 max-w-2xl mx-auto">
@@ -330,12 +322,12 @@ export default function LandingPage() {
       </section>
 
       {/* Mobile App Section */}
-      <section className="py-24 bg-gradient-to-b from-white to-gray-50">
-        <div className="container px-4">
+      <section className="w-full py-24 bg-gradient-to-b from-white to-gray-50">
+        <div className="w-full max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
             <h2 className="text-4xl font-bold mb-4">Trade on the Go</h2>
             <p className="text-gray-500 max-w-2xl mx-auto">
-            Download our mobile app and take your  experience to the next level.<span className="text-red-500">{"{Coming Soon}"}</span>
+              Download our mobile app and take your  experience to the next level.<span className="text-red-500">{"{Coming Soon}"}</span>
             </p>
           </div>
           <div className="flex justify-center gap-4">
@@ -350,9 +342,9 @@ export default function LandingPage() {
       </section>
 
       {/* Testimonials */}
-      <section className="py-24 bg-blue-600 relative overflow-hidden">
+      <section className="w-full py-24 bg-blue-600 relative overflow-hidden">
         <div className="absolute inset-0 bg-[linear-gradient(120deg,transparent_25%,rgba(255,255,255,0.1)_50%,transparent_75%)]"></div>
-        <div className="container px-4 relative">
+        <div className="w-full max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8">
           <div className="max-w-4xl mx-auto">
             <div className="text-center mb-16">
               <h2 className="text-3xl font-bold text-white mb-4">What Traders Say</h2>
@@ -380,20 +372,20 @@ export default function LandingPage() {
       </section>
 
       {/* Newsletter */}
-      <section className="py-24 bg-gray-50 relative">
-        <div className="container px-4">
+      <section className="w-full py-24 bg-gray-50 relative">
+        <div className="w-full max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8">
           <div className="max-w-xl mx-auto text-center relative">
             {/* Image on top left */}
             <img 
               src={image1} 
               alt="Newsletter Top Left" 
-              className="absolute -left-48 -top-16 w-40 h-40 opacity-80"
+              className="absolute -left-24 -top-16 w-32 h-32 opacity-80 md:-left-48 md:w-40 md:h-40"
             />
             {/* Image on bottom left */}
             <img 
               src={image2} 
               alt="Newsletter Bottom Left" 
-              className="absolute -right-48 -bottom-16 w-40 h-40 opacity-80"
+              className="absolute -right-24 -bottom-16 w-32 h-32 opacity-80 md:-right-48 md:w-40 md:h-40"
             />
             <h2 className="text-3xl font-bold mb-4">Stay Updated</h2>
             <p className="text-gray-500 mb-8">
@@ -413,12 +405,12 @@ export default function LandingPage() {
 
       {/* Footer */}
       <footer className="py-12 border-t border-white/10">
-        <div className="container mx-auto px-4">
+        <div className="container mx-auto max-w-7xl px-4">
           <div className="grid md:grid-cols-4 gap-8">
             <div>
               <div className="flex items-center gap-2 mb-4">
                 <AtomIcon className="w-6 h-6" />
-                <span className="text-lg font-bold">INOS</span>
+                <span className="text-lg font-bold">FLUXOS</span>
               </div>
               <p className="text-sm text-gray-400">
                 Different way of work and

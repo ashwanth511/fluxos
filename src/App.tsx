@@ -6,6 +6,7 @@ import './App.css'
 import { Button } from './components/ui/button'
 import LandingPage from './Pages/LandingPage'
 import DashboardPage from './Pages/Dashboard'
+import BuilderPage from './Pages/BuilderPage'
 
 function App() {
   const [count, setCount] = useState(0)
@@ -15,6 +16,7 @@ function App() {
     <Routes>
       <Route path="/" element={<LandingPage />} />
       <Route path="/dashboard" element={<DashboardPage />} />
+      <Route path="/builder" element={<BuilderPage />} />
       <Route path="*" element={<LandingPage />} />
     </Routes>
     </>
