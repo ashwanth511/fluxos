@@ -1,5 +1,5 @@
 import WalletConnect from '@/components/WalletConnect';
-import React, { useState, useCallback, useEffect } from 'react';
+import  { useState, useCallback,  } from 'react';
 import ReactFlow, {
   Controls,
   Background,
