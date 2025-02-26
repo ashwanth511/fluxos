@@ -7,7 +7,8 @@ import { Button } from './components/ui/button'
 import LandingPage from './Pages/LandingPage'
 import DashboardPage from './Pages/Dashboard'
 import BuilderPage from './Pages/BuilderPage'
-
+import SettingsPage from './Pages/Settings'
+import TokenPage from './Pages/TokenPage'
 function App() {
   const [count, setCount] = useState(0)
 
@@ -17,6 +18,8 @@ function App() {
       <Route path="/" element={<LandingPage />} />
       <Route path="/dashboard" element={<DashboardPage />} />
       <Route path="/builder" element={<BuilderPage />} />
+      <Route path="/settings" element={<SettingsPage />} />
+      <Route path="/token" element={<TokenPage   />} />
       <Route path="*" element={<LandingPage />} />
     </Routes>
     </>
