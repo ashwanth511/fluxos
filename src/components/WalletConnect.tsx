@@ -5,6 +5,7 @@ import { WalletStrategy } from '@injectivelabs/wallet-ts'
 import { Network } from '@injectivelabs/networks'
 import { ChainId } from '@injectivelabs/ts-types'
 import { AtomIcon } from './atom-icon'
+import { Link } from 'react-router-dom'
 
 export default function WalletConnect() {
   const [isConnected, setIsConnected] = useState(false)
@@ -38,8 +39,8 @@ export default function WalletConnect() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
           <div className="flex items-center">
-       <AtomIcon className='w-6 h-6'/>
-            <span className="ml-2 text-xl font-semibold font-space-grotesk">FLUXOS</span>
+          <AtomIcon className='w-6 h-6'/>
+          <Link to="/">  <span className="ml-2 text-xl font-semibold font-space-grotesk">FLUXOS</span></Link>
           </div>
           
           <div className="flex items-center gap-2">

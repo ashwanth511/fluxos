@@ -1,33 +1,18 @@
-import { Bot, Home, Settings, Workflow, Wallet, BarChart2, Brain, Rocket, Send, Terminal } from "lucide-react"
 import { Link } from "react-router-dom"
+import { navigationConfig } from "@/config/navigation"
 
-interface DockIconsProps {
-  icons?: Array<{
-    icon: any
-    label: string
-    path?: string
-  }>
-}
+interface DockIconsProps {}
 
-export default function DockIcons({ icons }: DockIconsProps) {
-  const dockIcons = [
-    { icon: Home, label: "Home" },
-    { icon: Workflow, label: "IFTTT Builder" },
-    { icon: Wallet, label: "Wallet" },
-    { icon: BarChart2, label: "Trading" },
-    { icon: Brain, label: "AI Agents" },
-    { icon: Rocket, label: "Launch" },
-    { icon: Terminal, label: "Console" },
-    { icon: Settings, label: "Settings" },
-  ]
+export default function DockIcons() {
+  const { dockIcons } = navigationConfig;
 
-  if (!icons) return null
+  if (!dockIcons) return null;
 
   return (
     <div className="fixed bottom-4 left-1/2 -translate-x-1/2">
       <div className="flex items-end gap-2 px-4 py-3 bg-white/80 backdrop-blur-md rounded-2xl border shadow-lg">
         {dockIcons.map((item, index) => {
-          const path = `/${item.label.toLowerCase().replace(/\s+/g, '-')}`
+          const path = `${item.path}`;
 
           return (
             <Link 

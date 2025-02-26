@@ -5,16 +5,7 @@ import { Bot, Home, Settings, Workflow, Wallet, BarChart2, Brain, Rocket, Send, 
 const TokenPage: React.FC = () => {
 
 
-  const dockIcons = [
-    { icon: Home, label: "Home", path: "/" },
-    { icon: Workflow, label: "IFTTT Builder", path: "/ifttt" },
-    { icon: Wallet, label: "Wallet", path: "/wallet" },
-    { icon: BarChart2, label: "Trading", path: "/trading" },
-    { icon: Brain, label: "AI Agents", path: "/agents" },
-    { icon: Rocket, label: "Launch", path: "/launch" },
-    { icon: Terminal, label: "Console", path: "/console" },
-    { icon: Settings, label: "Settings", path: "/settings" },
-  ]
+
 
   const [activeTab, setActiveTab] = useState('ai');
   const [tokenName, setTokenName] = useState('');
@@ -50,7 +41,7 @@ const TokenPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-white p-8">
+    <div className="min-h-screen bg-white p-8 py-20">
       <div className="max-w-6xl mx-auto">
         <div className="flex justify-between items-center mb-8">
           <div>
@@ -109,7 +100,7 @@ const TokenPage: React.FC = () => {
                 <button
                   onClick={handleAITokenCreation}
                   disabled={loading}
-                  className="w-full flex justify-center py-4 px-6 border border-transparent rounded-lg shadow-sm text-lg font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-blue-300 disabled:cursor-not-allowed transition-all duration-200"
+                  className="w-full flex justify-center py-4 px-6 border border-transparent rounded-lg shadow-sm text-lg font-medium text-white bg-black hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-blue-300 disabled:cursor-not-allowed transition-all duration-200"
                 >
                   {loading ? 'Generating Token...' : 'Generate Token with AI'}
                 </button>
@@ -181,7 +172,7 @@ const TokenPage: React.FC = () => {
                   </div>
                   <button
                     onClick={handleManualTokenCreation}
-                    className="w-full flex justify-center py-4 px-6 border border-transparent rounded-lg shadow-sm text-lg font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all duration-200"
+                    className="w-full flex justify-center py-4 px-6 border border-transparent rounded-lg shadow-sm text-lg font-medium text-white bg-black hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all duration-200"
                   >
                     Create Token
                   </button>
@@ -191,7 +182,7 @@ const TokenPage: React.FC = () => {
           </div>
         </div>
       </div>
-      <DockIcons icons={dockIcons} />
+      <DockIcons />
     </div>
   );
 };

@@ -6,7 +6,8 @@ import { Input } from "@/components/ui/input"
 import { Bot, Home, Settings, Workflow, Wallet, BarChart2, Brain, Rocket, Send, Terminal } from "lucide-react"
 import DockIcons from "@/components/DockIcons"
 import WalletConnect from "@/components/WalletConnect"
-
+import agentimg from "@/assets/hero13.png"
+import abstractShape from "@/assets/abstract-shape.svg"
 export default function DashboardPage() {
   const [input, setInput] = useState("")
 
@@ -37,10 +38,12 @@ const quickActions = [
       <div className="pt-20 p-8">
         <div className="max-w-4xl mx-auto">
           <div className="text-center mb-8">
-            <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <Bot className="w-8 h-8 text-blue-600" />
+            <div className="w-1/3 h-1/3  rounded-2xl flex items-center justify-center mx-auto mb-4 relative overflow-hidden">
+              <div className="absolute inset-0  animate-wave"></div>
+              <img src={agentimg} alt="Abstract Shape" className="w-full h-full relative z-10 animate-float" />
             </div>
             <h1 className="text-2xl font-semibold mb-2">Talk Data to Me</h1>
+
             <p className="text-gray-600">Choose a prompt below or write your own to start chatting with Seam</p>
           </div>
 
@@ -72,7 +75,7 @@ const quickActions = [
         </div>
       </div>
 
-      <DockIcons icons={dockIcons} />
+      <DockIcons />
     </div>
   )
 }

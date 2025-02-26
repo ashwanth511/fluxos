@@ -26,9 +26,9 @@ export default function Navbar() {
               </Link>
               
             </nav>
-            <Button variant="outline" className="border-white/20 text-black font-bold hover:bg-white/10">
+          <Link to="/dashboard"> <Button variant="outline" className="border-white/20 text-black font-bold hover:bg-white/10">
               Get Started
-            </Button>
+            </Button></Link>
           </div>
         </div>
       </header>

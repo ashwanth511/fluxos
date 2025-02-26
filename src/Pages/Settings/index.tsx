@@ -4,16 +4,7 @@ import DockIcons from '@/components/DockIcons';
 import { Bot, Home, Settings, Workflow, Wallet, BarChart2, Brain, Rocket, Send, Terminal } from "lucide-react"
 const SettingsPage: React.FC = () => {
 
-    const dockIcons = [
-        { icon: Home, label: "Home", path: "/" },
-        { icon: Workflow, label: "IFTTT Builder", path: "/ifttt" },
-        { icon: Wallet, label: "Wallet", path: "/wallet" },
-        { icon: BarChart2, label: "Trading", path: "/trading" },
-        { icon: Brain, label: "AI Agents", path: "/agents" },
-        { icon: Rocket, label: "Launch", path: "/launch" },
-        { icon: Terminal, label: "Console", path: "/console" },
-        { icon: Settings, label: "Settings", path: "/settings" },
-      ]
+ 
   const [settings, setSettings] = useState({
     network: 'mainnet',
     theme: 'light',
@@ -223,7 +214,7 @@ const SettingsPage: React.FC = () => {
           </div>
         </div>
       </div>
-      <DockIcons icons={dockIcons} />
+      <DockIcons />
     </div>
   );
 };
