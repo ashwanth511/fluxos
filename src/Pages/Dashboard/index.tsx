@@ -44,7 +44,7 @@ const quickActions = [
             </div>
             <h1 className="text-2xl font-semibold mb-2">Talk Data to Me</h1>
 
-            <p className="text-gray-600">Choose a prompt below or write your own to start chatting with Seam</p>
+            <p className="text-gray-600">Choose a prompt below or write your own to start chatting with <span className="font-bold">Flux</span></p>
           </div>
 
           {/* Quick Actions */}
