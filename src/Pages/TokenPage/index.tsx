@@ -1,12 +1,18 @@
 import React, { useState } from 'react';
 import WalletConnect from '@/components/WalletConnect';
 import DockIcons from "@/components/DockIcons"
-import { Bot, Home, Settings, Workflow, Wallet, BarChart2, Brain, Rocket, Send, Terminal } from "lucide-react"
+import { useWallet } from '@/context/WalletContext';
+import { ChainId } from '@injectivelabs/ts-types';
+import { BigNumberInBase } from '@injectivelabs/utils';
+import { 
+  MsgCreateDenom,
+  MsgMint,
+  MsgSetDenomMetadata
+} from '@injectivelabs/sdk-ts';
+import { MsgBroadcaster } from '@injectivelabs/wallet-ts';
+
 const TokenPage: React.FC = () => {
-
-
-
-
+  const { address, walletStrategy, network } = useWallet();
   const [activeTab, setActiveTab] = useState('ai');
   const [tokenName, setTokenName] = useState('');
   const [tokenSymbol, setTokenSymbol] = useState('');
@@ -15,28 +21,135 @@ const TokenPage: React.FC = () => {
   const [tokenDescription, setTokenDescription] = useState('');
   const [aiPrompt, setAiPrompt] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const createToken = async (params: {
+    name: string;
+    symbol: string;
+    supply: string;
+    image?: string;
+    description?: string;
+  }) => {
+    try {
+      if (!address || !walletStrategy) {
+        throw new Error('Please connect your wallet first');
+      }
+
+      setLoading(true);
+      setError('');
+
+      const subdenom = params.symbol.toLowerCase();
+      const denom = `factory/${address}/${subdenom}`;
+
+      // Create denom message with proper structure
+      const createDenomMsg = {
+        subdenom: subdenom,
+        sender: address
+      };
+
+      // Convert supply to the proper format - using 18 decimals for token
+      const amountInWei = new BigNumberInBase(params.supply).toWei(18).toFixed();
+
+      // Create mint message with proper structure
+      const mintMsg = {
+        sender: address,
+        amount: {
+          denom: denom,
+          amount: amountInWei
+        }
+      };
+
+      // Create metadata message with proper structure
+      const metadataMsg = {
+        sender: address,
+        metadata: {
+          base: denom,
+          description: params.description || '',
+          display: subdenom,
+          name: params.name,
+          symbol: params.symbol.toUpperCase(),
+          uri: params.image || '',
+          uriHash: '',
+          decimals: 18,
+          denomUnits: [
+            {
+              denom: denom,
+              exponent: 0,
+              aliases: [subdenom]
+            },
+            {
+              denom: subdenom,
+              exponent: 18,
+              aliases: []
+            }
+          ]
+        }
+      };
+
+      // Create broadcaster using wallet strategy
+      const broadcaster = new MsgBroadcaster({
+        network: network,
+        walletStrategy
+      });
+
+      // Create actual message instances
+      const createDenomMsgInstance = MsgCreateDenom.fromJSON(createDenomMsg);
+      const mintMsgInstance = MsgMint.fromJSON(mintMsg);
+      const metadataMsgInstance = MsgSetDenomMetadata.fromJSON(metadataMsg);
+
+      // Broadcast transaction with all messages
+      const response = await broadcaster.broadcast({
+        injectiveAddress: address,
+        msgs: [createDenomMsgInstance, mintMsgInstance, metadataMsgInstance]
+      });
+      
+      console.log('Token created successfully:', response);
+      alert('Token created successfully! Transaction hash: ' + response.txHash);
+
+    } catch (err: any) {
+      console.error('Error creating token:', err);
+      setError(err.message || 'Failed to create token');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleAITokenCreation = async () => {
     setLoading(true);
     try {
-      console.log('AI Token Creation:', aiPrompt);
-    } catch (error) {
+      // Here we would integrate with AI to generate token params
+      // For now, let's use some default values
+      const tokenParams = {
+        name: "AI Generated Token",
+        symbol: "AGT",
+        supply: "1000000",
+        description: aiPrompt
+      };
+      
+      await createToken(tokenParams);
+    } catch (error: any) {
       console.error('Error:', error);
+      setError(error.message);
     }
     setLoading(false);
   };
 
   const handleManualTokenCreation = async () => {
     try {
-      console.log('Manual Token Creation:', {
+      if (!tokenName || !tokenSymbol || !tokenSupply) {
+        throw new Error('Please fill in all required fields');
+      }
+
+      await createToken({
         name: tokenName,
         symbol: tokenSymbol,
         supply: tokenSupply,
         image: tokenImage,
         description: tokenDescription
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error:', error);
+      setError(error.message);
     }
   };
 
