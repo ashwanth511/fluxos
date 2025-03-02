@@ -8,7 +8,7 @@ dotenv.config();
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || '');
 
 // Get a text-only model
-const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
 
 // Chat with the agent
 export const chatWithAgent = async (

@@ -11,8 +11,8 @@ import ReactFlow, {
   MarkerType,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { FaSave, FaPlay, FaPause } from 'react-icons/fa';
-import { ChevronLeft } from 'lucide-react';
+import { ChevronLeft,Save, Play, Pause } from 'lucide-react';
+
 import { Link } from 'react-router-dom';
 import DockIcons from '@/components/DockIcons';
 
@@ -710,12 +710,12 @@ const BuilderPage = () => {
             >
               {isRunning ? (
                 <>
-                  <FaPause className="w-4 h-4" />
+                  <Pause className="w-4 h-4" />
                   <span>Pause Workflow</span>
                 </>
               ) : (
                 <>
-                  <FaPlay className="w-4 h-4" />
+                  <Play className="w-4 h-4" />
                   <span>Run Workflow</span>
                 </>
               )}
@@ -729,7 +729,7 @@ const BuilderPage = () => {
                   : 'bg-blue-100 text-blue-600 hover:bg-blue-200'
               }`}
             >
-              <FaSave className="w-4 h-4" />
+              <Save className="w-4 h-4" />
               <span>{isSaving ? 'Saving...' : 'Save Workflow'}</span>
             </button>
           </div>

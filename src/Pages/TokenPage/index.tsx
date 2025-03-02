@@ -41,7 +41,7 @@ const TokenPage: React.FC = () => {
   const [tokenName, setTokenName] = useState('');
   const [tokenSymbol, setTokenSymbol] = useState('');
   const [tokenSupply, setTokenSupply] = useState('');
-  const [tokenImage, setTokenImage] = useState('');
+  const [selectedImage, setSelectedImage] = useState('');
   const [tokenDescription, setTokenDescription] = useState('');
   const [aiPrompt, setAiPrompt] = useState('');
   const [loading, setLoading] = useState(false);
@@ -59,6 +59,16 @@ const TokenPage: React.FC = () => {
   const [agentCommunicationStyle, setAgentCommunicationStyle] = useState('');
   const [agentKnowledgeDomains, setAgentKnowledgeDomains] = useState('');
   
+  // Add these state variables at the top of the component
+  const [messages, setMessages] = useState<Array<{role: string, content: string}>>([
+    {
+      role: 'assistant',
+      content: 'Hi there! I\'m your AI assistant for token creation and trading strategies on Injective. How can I help you today?'
+    }
+  ]);
+  const [isTyping, setIsTyping] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { width, height } = useWindowSize();
 
@@ -82,7 +92,7 @@ const TokenPage: React.FC = () => {
       }
 
       const data = await response.json();
-      setTokenImage(data.url);
+      setSelectedImage(data.url);
     } catch (error: any) {
       console.error('Error uploading image:', error);
       setError(error.message || 'Failed to upload image');
@@ -246,7 +256,7 @@ const TokenPage: React.FC = () => {
         name: tokenName,
         symbol: tokenSymbol,
         supply: tokenSupply,
-        image: tokenImage,
+        image: selectedImage,
         description: tokenDescription
       });
 
@@ -310,7 +320,7 @@ const TokenPage: React.FC = () => {
     setTokenName('');
     setTokenSymbol('');
     setTokenSupply('');
-    setTokenImage('');
+    setSelectedImage('');
     setTokenDescription('');
     setAiPrompt('');
     setAgentPersonality('');
@@ -323,6 +333,391 @@ const TokenPage: React.FC = () => {
 
   const handleImageButtonClick = () => {
     fileInputRef.current?.click();
+  };
+
+  const handleSendMessage = async () => {
+    if (!aiPrompt.trim() || loading) return;
+    
+    // Add user message to chat
+    const userMessage = aiPrompt.trim();
+    setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
+    setAiPrompt('');
+    setIsTyping(true);
+    
+    try {
+      // Call the AI assistant API
+      const response = await fetch('http://localhost:5000/api/assistant/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: userMessage,
+          walletAddress: address,
+          conversationHistory: messages
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to get response from assistant');
+      }
+      
+      const data = await response.json();
+      
+      // Process the response to extract token information if available
+      const aiResponse = data.response;
+      
+      // Check if the response contains token creation data
+      if (aiResponse.includes('TOKEN_DATA:')) {
+        try {
+          const tokenDataMatch = aiResponse.match(/TOKEN_DATA:(.*?)END_TOKEN_DATA/s);
+          if (tokenDataMatch && tokenDataMatch[1]) {
+            const tokenData = JSON.parse(tokenDataMatch[1].trim());
+            
+            // Fill in the token form
+            setTokenName(tokenData.name || '');
+            setTokenSymbol(tokenData.symbol || '');
+            setTokenSupply(tokenData.supply || '');
+            setTokenDescription(tokenData.description || '');
+            
+            // Add a message about the token data
+            setMessages(prev => [...prev, { 
+              role: 'assistant', 
+              content: 'I\'ve prepared the token details for you. Now let\'s create an AI agent for your token. What personality and traits would you like your token agent to have?' 
+            }]);
+            
+            // Don't switch to manual tab yet
+            // setActiveTab('manual');
+            // setCurrentStep(1);
+          } else {
+            // Just add the regular response
+            setMessages(prev => [...prev, { role: 'assistant', content: aiResponse }]);
+          }
+        } catch (err) {
+          console.error('Error parsing token data:', err);
+          setMessages(prev => [...prev, { role: 'assistant', content: aiResponse }]);
+        }
+      } 
+      // Check if the response contains agent data
+      else if (aiResponse.includes('AGENT_DATA:')) {
+        try {
+          const agentDataMatch = aiResponse.match(/AGENT_DATA:(.*?)END_AGENT_DATA/s);
+          if (agentDataMatch && agentDataMatch[1]) {
+            const agentData = JSON.parse(agentDataMatch[1].trim());
+            
+            // Fill in the agent form
+            setAgentPersonality(agentData.personality || '');
+            setAgentBackground(agentData.background || '');
+            setAgentSpecialties(agentData.specialties || '');
+            setAgentInterests(agentData.interests || '');
+            setAgentCommunicationStyle(agentData.communicationStyle || '');
+            setAgentKnowledgeDomains(agentData.knowledgeDomains || '');
+            
+            // Add a message about the agent data
+            setMessages(prev => [...prev, { 
+              role: 'assistant', 
+              content: 'I\'ve prepared the agent details. Ready to launch your token? Just say "launch" and I\'ll create your token on the blockchain.' 
+            }]);
+            
+            // Don't switch to manual tab
+            // setActiveTab('manual');
+            // setCurrentStep(2);
+          } else {
+            // Just add the regular response
+            setMessages(prev => [...prev, { role: 'assistant', content: aiResponse }]);
+          }
+        } catch (err) {
+          console.error('Error parsing agent data:', err);
+          setMessages(prev => [...prev, { role: 'assistant', content: aiResponse }]);
+        }
+      }
+      // Check if the response contains a launch command
+      else if (aiResponse.toLowerCase().includes('launch token') || 
+               userMessage.toLowerCase().includes('launch')) {
+        
+        // Check if we have all required token data
+        if (!tokenName || !tokenSymbol || !tokenSupply) {
+          setMessages(prev => [...prev, { 
+            role: 'assistant', 
+            content: 'I need more information about your token before I can launch it. Please provide a name, symbol, and supply for your token.' 
+          }]);
+          return;
+        }
+        
+        // Add the assistant message first
+        setMessages(prev => [...prev, { 
+          role: 'assistant', 
+          content: 'Launching your token now. Please approve the transaction in your wallet.' 
+        }]);
+        
+        // Trigger token creation directly from AI interface
+        setLoading(true);
+        
+        try {
+          // Create token and agent
+          const result = await createTokenWithAgent();
+          
+          if (result.success) {
+            setMessages(prev => [...prev, { 
+              role: 'assistant', 
+              content: `🎉 Success! Your token "${tokenName}" (${tokenSymbol}) has been created on the blockchain. Transaction hash: ${result.txHash}` 
+            }]);
+            
+            // Show confetti
+            setShowConfetti(true);
+            setTimeout(() => setShowConfetti(false), 5000);
+            
+            // Reset form
+            resetForm();
+          } else {
+            setMessages(prev => [...prev, { 
+              role: 'assistant', 
+              content: `Sorry, there was an error creating your token: ${result.error}` 
+            }]);
+          }
+        } catch (error) {
+          console.error('Error creating token:', error);
+          setMessages(prev => [...prev, { 
+            role: 'assistant', 
+            content: 'Sorry, there was an error creating your token. Please try again.' 
+          }]);
+        } finally {
+          setLoading(false);
+        }
+      }
+      // Regular response
+      else {
+        setMessages(prev => [...prev, { role: 'assistant', content: aiResponse }]);
+      }
+    } catch (error) {
+      console.error('Error sending message:', error);
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: 'Sorry, I encountered an error. Please try again.' 
+      }]);
+    } finally {
+      setIsTyping(false);
+      // Scroll to bottom of chat
+      setTimeout(() => {
+        chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
+    }
+  };
+
+  // Add this function to handle keyboard shortcuts
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
+  };
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  // Add this component to display trading strategies
+  const TradingStrategies = () => {
+    return (
+      <div className="mt-8 bg-white p-6 rounded-lg shadow-md">
+        <h2 className="text-xl font-bold mb-4">Trading Strategies</h2>
+        <p className="text-gray-600 mb-4">
+          Ask the AI assistant about trading strategies for your tokens. Here are some examples:
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="bg-blue-50 p-4 rounded-lg">
+            <h3 className="font-medium text-blue-700">DCA Strategy</h3>
+            <p className="text-sm text-gray-600">Dollar-cost averaging strategy for long-term token accumulation</p>
+            <button 
+              onClick={() => {
+                setAiPrompt("Can you explain a dollar-cost averaging strategy for my token?");
+                handleSendMessage();
+              }}
+              className="mt-2 text-sm text-blue-600 hover:text-blue-800"
+            >
+              Ask about this strategy →
+            </button>
+          </div>
+          <div className="bg-green-50 p-4 rounded-lg">
+            <h3 className="font-medium text-green-700">Staking Strategy</h3>
+            <p className="text-sm text-gray-600">Maximize returns through strategic token staking</p>
+            <button 
+              onClick={() => {
+                setAiPrompt("What's the best staking strategy for my token on Injective?");
+                handleSendMessage();
+              }}
+              className="mt-2 text-sm text-green-600 hover:text-green-800"
+            >
+              Ask about staking →
+            </button>
+          </div>
+          <div className="bg-purple-50 p-4 rounded-lg">
+            <h3 className="font-medium text-purple-700">Liquidity Provision</h3>
+            <p className="text-sm text-gray-600">Provide liquidity to DEXs and earn fees</p>
+            <button 
+              onClick={() => {
+                setAiPrompt("How can I provide liquidity for my token on Injective?");
+                handleSendMessage();
+              }}
+              className="mt-2 text-sm text-purple-600 hover:text-purple-800"
+            >
+              Learn about LP →
+            </button>
+          </div>
+          <div className="bg-yellow-50 p-4 rounded-lg">
+            <h3 className="font-medium text-yellow-700">Token Launch Strategy</h3>
+            <p className="text-sm text-gray-600">Best practices for launching your token</p>
+            <button 
+              onClick={() => {
+                setAiPrompt("What's the best strategy for launching my token on Injective?");
+                handleSendMessage();
+              }}
+              className="mt-2 text-sm text-yellow-600 hover:text-yellow-800"
+            >
+              Get launch tips →
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Add this component to display token creation suggestions
+  const TokenCreationSuggestions = () => {
+    return (
+      <div className="mt-8 bg-white p-6 rounded-lg shadow-md">
+        <h2 className="text-xl font-bold mb-4">Token Creation Assistant</h2>
+        <p className="text-gray-600 mb-4">
+          Let the AI help you create your token. Click on any suggestion to get started:
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="bg-indigo-50 p-4 rounded-lg">
+            <h3 className="font-medium text-indigo-700">Create a DeFi Token</h3>
+            <p className="text-sm text-gray-600">Generate a token optimized for DeFi applications</p>
+            <button 
+              onClick={() => {
+                setAiPrompt("Help me create a DeFi token for lending and borrowing");
+                handleSendMessage();
+              }}
+              className="mt-2 text-sm text-indigo-600 hover:text-indigo-800"
+            >
+              Create DeFi Token →
+            </button>
+          </div>
+          <div className="bg-pink-50 p-4 rounded-lg">
+            <h3 className="font-medium text-pink-700">Create a Governance Token</h3>
+            <p className="text-sm text-gray-600">Generate a token for DAO governance</p>
+            <button 
+              onClick={() => {
+                setAiPrompt("Help me create a governance token for my DAO");
+                handleSendMessage();
+              }}
+              className="mt-2 text-sm text-pink-600 hover:text-pink-800"
+            >
+              Create Governance Token →
+            </button>
+          </div>
+          <div className="bg-red-50 p-4 rounded-lg">
+            <h3 className="font-medium text-red-700">Create a Utility Token</h3>
+            <p className="text-sm text-gray-600">Generate a token with utility in your ecosystem</p>
+            <button 
+              onClick={() => {
+                setAiPrompt("Help me create a utility token for my dApp");
+                handleSendMessage();
+              }}
+              className="mt-2 text-sm text-red-600 hover:text-red-800"
+            >
+              Create Utility Token →
+            </button>
+          </div>
+          <div className="bg-teal-50 p-4 rounded-lg">
+            <h3 className="font-medium text-teal-700">Custom Token</h3>
+            <p className="text-sm text-gray-600">Describe your token idea and let AI help you</p>
+            <button 
+              onClick={() => {
+                setAiPrompt("I want to create a token for [your idea here]. Can you help me?");
+                handleSendMessage();
+              }}
+              className="mt-2 text-sm text-teal-600 hover:text-teal-800"
+            >
+              Create Custom Token →
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Add this function to create token and agent directly from AI interface
+  const createTokenWithAgent = async () => {
+    if (!address || !tokenName || !tokenSymbol || !tokenSupply) {
+      return { success: false, error: 'Missing required token information' };
+    }
+
+    try {
+      // First create the token on the blockchain using the existing function
+      // that properly interacts with the wallet
+      const tokenBlockchainData = await createToken({
+        name: tokenName,
+        symbol: tokenSymbol,
+        supply: tokenSupply,
+        image: selectedImage || '',
+        description: tokenDescription || ''
+      });
+
+      console.log('Token created on blockchain:', tokenBlockchainData);
+
+      // Prepare agent data
+      const agentData = {
+        token: tokenBlockchainData, // Use the blockchain token data
+        traits: {
+          personality: agentPersonality || 'Helpful and knowledgeable',
+          background: agentBackground || 'Expert in token economics and trading strategies',
+          specialties: agentSpecialties ? agentSpecialties.split(',').map((s: string) => s.trim()) : ['Token creation', 'Trading', 'Investment strategies'],
+          interests: agentInterests ? agentInterests.split(',').map((s: string) => s.trim()) : ['DeFi', 'Blockchain technology', 'Financial markets'],
+          communicationStyle: agentCommunicationStyle || 'Clear, concise, and informative',
+          knowledgeDomains: agentKnowledgeDomains ? agentKnowledgeDomains.split(',').map((s: string) => s.trim()) : ['Cryptocurrency', 'DeFi', 'Injective Protocol']
+        }
+      };
+
+      // Save token and agent to database
+      const dbResponse = await fetch('http://localhost:5000/api/tokens', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(agentData),
+      });
+      
+      const responseText = await dbResponse.text();
+      console.log('Response from server:', responseText);
+      
+      if (!dbResponse.ok) {
+        throw new Error(responseText || 'Failed to create token and agent in database');
+      }
+      
+      try {
+        const responseData = JSON.parse(responseText);
+        const { token, agent } = responseData;
+        
+        setSuccessToken(token);
+        setSuccessAgent(agent);
+      } catch (err) {
+        console.error('Error parsing response:', err);
+      }
+
+      return { 
+        success: true, 
+        txHash: tokenBlockchainData.txhash || 'Transaction successful, but hash not available',
+        tokenId: tokenBlockchainData.denom || ''
+      };
+    } catch (error) {
+      console.error('Error creating token:', error);
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
   };
 
   return (
@@ -403,32 +798,79 @@ const TokenPage: React.FC = () => {
 
           <div className="p-8">
             {activeTab === 'ai' ? (
-              <div className="space-y-8">
-                <div className="bg-gray-50 rounded-lg p-6">
-                  <label className="block text-lg font-medium text-gray-900 mb-4">
-                    Describe Your Token
-                  </label>
-                  <textarea
-                    value={aiPrompt}
-                    onChange={(e) => setAiPrompt(e.target.value)}
-                        placeholder="Describe your token's purpose, features, and target audience..."
-                        className="w-full h-40 p-4 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-
-                    <div className="flex justify-end">
-                <button
-                  onClick={handleAITokenCreation}
-                        disabled={!address || loading || !aiPrompt}
-                        className={`px-8 py-3 rounded-lg text-white font-medium ${
-                          !address || loading || !aiPrompt
-                            ? 'bg-gray-400 cursor-not-allowed'
-                            : 'bg-blue-600 hover:bg-blue-700'
-                        }`}
-                      >
-                        {loading ? 'Creating...' : 'Generate Token with AI'}
-                </button>
+              <div>
+                <TradingStrategies />
+                <TokenCreationSuggestions />
+                <div className="space-y-8">
+                  <div className="bg-gray-50 rounded-lg p-6">
+                    <div className="flex items-center mb-4">
+                      <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-6 h-6 text-white">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                        </svg>
+                      </div>
+                      <div className="text-lg font-medium text-gray-900 ml-3">AI Assistant</div>
                     </div>
+                    <div className="chat-messages bg-white rounded-lg p-4 mb-4 h-60 overflow-y-auto">
+                      {messages.map((message, index) => (
+                        <div key={index} className={`flex items-center mb-2 ${message.role === 'assistant' ? 'justify-start' : 'justify-end'}`}>
+                          <div className={`rounded-lg p-2 max-w-[80%] ${message.role === 'assistant' ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-600'}`}>
+                            {message.content}
+                          </div>
+                        </div>
+                      ))}
+                      {isTyping && (
+                        <div className="flex items-center mb-2 justify-start">
+                          <div className="rounded-lg p-2 bg-blue-100 text-blue-600">
+                            <div className="flex items-center">
+                              <div className="dot-typing"></div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      <div ref={chatEndRef} />
+                    </div>
+                    <div className="flex items-center">
+                      <textarea
+                        value={aiPrompt}
+                        onChange={(e) => setAiPrompt(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        placeholder="Ask about token creation..."
+                        className="w-full p-4 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 resize-none"
+                        rows={3}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end">
+                    <button
+                      onClick={handleSendMessage}
+                      disabled={!address || loading || !aiPrompt}
+                      className={`px-8 py-3 rounded-lg text-white font-medium ${
+                        !address || loading || !aiPrompt
+                          ? 'bg-gray-400 cursor-not-allowed'
+                          : 'bg-blue-600 hover:bg-blue-700'
+                      }`}
+                    >
+                      {loading ? (
+                        <>
+                          <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Generating...
+                        </>
+                      ) : (
+                        <>
+                          Send
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 ml-2" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clipRule="evenodd" />
+                          </svg>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
               </div>
             ) : (
               <div className="space-y-8">
@@ -514,10 +956,10 @@ const TokenPage: React.FC = () => {
                         >
                           Upload Image
                         </button>
-                        {tokenImage && (
+                        {selectedImage && (
                           <div className="flex items-center">
                             <img 
-                              src={tokenImage} 
+                              src={selectedImage} 
                               alt="Token" 
                               className="h-10 w-10 rounded-full object-cover"
                             />
@@ -695,9 +1137,9 @@ const TokenPage: React.FC = () => {
                       >
                         {loading ? (
                           <>
-                            <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                            <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                             </svg>
                             Creating...
                           </>

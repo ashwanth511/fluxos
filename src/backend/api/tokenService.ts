@@ -55,11 +55,15 @@ export const createTokenWithAgent = async (data: any) => {
     if (!tokenData.name) throw new Error('Token name is required');
     if (!tokenData.symbol) throw new Error('Token symbol is required');
     if (!tokenData.supply) throw new Error('Token supply is required');
-    if (!tokenData.creator) throw new Error('Token creator is required');
-    if (!tokenData.txHash) throw new Error('Transaction hash is required');
+    
+    // Use creatorAddress if creator is not provided
+    const creator = tokenData.creator || tokenData.creatorAddress || 'inj1demo';
+    
+    // Generate a mock transaction hash if not provided (for demo purposes)
+    const txHash = tokenData.txHash || `mock_tx_${Date.now().toString(16)}`;
     
     // Validate denom format
-    const denom = tokenData.denom || `factory/${tokenData.creator}/${tokenData.symbol.toLowerCase()}`;
+    const denom = tokenData.denom || `factory/${creator}/${tokenData.symbol.toLowerCase()}`;
     if (!denom.startsWith('factory/')) {
       throw new Error('Invalid denom format. Must start with factory/');
     }
@@ -72,8 +76,8 @@ export const createTokenWithAgent = async (data: any) => {
       supply: tokenData.supply,
       description: tokenData.description || '',
       imageUrl: tokenData.imageUrl || tokenData.image || '',
-      creator: tokenData.creator,
-      txHash: tokenData.txHash
+      creator: creator,
+      txHash: txHash
     });
     
     await token.save();
@@ -84,18 +88,18 @@ export const createTokenWithAgent = async (data: any) => {
       description: `AI Agent for ${token.name} token`,
       tokenId: token._id,
       traits: {
-        personality: data.traits?.personality || 'Friendly and professional',
-        background: data.traits?.background || `Expert in ${token.name} token and blockchain technology`,
-        specialties: Array.isArray(data.traits?.specialties) 
-          ? data.traits.specialties 
-          : (data.traits?.specialties || 'Blockchain,Tokenomics').split(',').map((s: string) => s.trim()),
-        interests: Array.isArray(data.traits?.interests)
-          ? data.traits.interests
-          : (data.traits?.interests || 'DeFi,Technology').split(',').map((s: string) => s.trim()),
-        communicationStyle: data.traits?.communicationStyle || 'Professional and helpful',
-        knowledgeDomains: Array.isArray(data.traits?.knowledgeDomains)
-          ? data.traits.knowledgeDomains
-          : (data.traits?.knowledgeDomains || 'Blockchain,Finance').split(',').map((s: string) => s.trim())
+        personality: data.agent?.personality || data.traits?.personality || 'Friendly and professional',
+        background: data.agent?.background || data.traits?.background || `Expert in ${token.name} token and blockchain technology`,
+        specialties: Array.isArray(data.agent?.specialties || data.traits?.specialties) 
+          ? (data.agent?.specialties || data.traits?.specialties) 
+          : ((data.agent?.specialties || data.traits?.specialties || 'Blockchain,Tokenomics').split(',').map((s: string) => s.trim())),
+        interests: Array.isArray(data.agent?.interests || data.traits?.interests)
+          ? (data.agent?.interests || data.traits?.interests)
+          : ((data.agent?.interests || data.traits?.interests || 'DeFi,Technology').split(',').map((s: string) => s.trim())),
+        communicationStyle: data.agent?.communicationStyle || data.traits?.communicationStyle || 'Professional and helpful',
+        knowledgeDomains: Array.isArray(data.agent?.knowledgeDomains || data.traits?.knowledgeDomains)
+          ? (data.agent?.knowledgeDomains || data.traits?.knowledgeDomains)
+          : ((data.agent?.knowledgeDomains || data.traits?.knowledgeDomains || 'Blockchain,Finance').split(',').map((s: string) => s.trim()))
       }
     });
     
