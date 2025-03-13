@@ -7,7 +7,7 @@ import cors from 'cors';
 import { connectToDatabase } from './db/index.js';
 import TokenModel from './models/TokenModel.js';
 import AgentModel from './models/AgentModel.js';
-import { createTokenWithAgent, getAllTokens, getTokenByDenom } from './api/tokenService.js';
+import { createTokenWithAgent, getAllTokens, getTokenByDenom, getTokenById } from './api/tokenService.js';
 import multer from 'multer';
 import { uploadToIPFS } from './ipfs.js';
 import { chatWithAgent } from './ai/index.js';
@@ -40,6 +40,20 @@ app.get('/api/tokens', async (req, res) => {
   }
 });
 
+// Get token by ID - this must come before the denom route
+app.get('/api/tokens/id/:id', async (req, res) => {
+  try {
+    const token = await getTokenById(req.params.id);
+    if (!token) {
+      return res.status(404).json({ error: 'Token not found' });
+    }
+    res.json(token);
+  } catch (error) {
+    console.error('Error fetching token by ID:', error);
+    res.status(500).json({ error: 'Failed to fetch token' });
+  }
+});
+
 app.get('/api/tokens/:denom', async (req, res) => {
   try {
     const token = await getTokenByDenom(req.params.denom);
@@ -58,9 +72,10 @@ app.post('/api/tokens', async (req, res) => {
     console.log('Received token creation request:', JSON.stringify(req.body, null, 2));
     const result = await createTokenWithAgent(req.body);
     res.status(201).json(result);
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error creating token:', error);
-    res.status(500).json({ error: error.message || 'Failed to create token' });
+    const errorMessage = error instanceof Error ? error.message : 'Failed to create token';
+    res.status(500).json({ error: errorMessage });
   }
 });
 
@@ -97,30 +112,100 @@ app.post('/api/tokens/:tokenId/chat', async (req, res) => {
       return res.status(404).json({ error: 'Agent not found for this token' });
     }
     
-    // Generate response using AI
-    const response = await chatWithAgent(agent.traits, message, conversationHistory);
-    
-    // Save the conversation
-    let conversation = agent.conversations.find(conv => conv.userId === userId);
-    if (!conversation) {
-      conversation = { userId, messages: [] };
-      agent.conversations.push(conversation);
+    // Get the token information to pass to the agent
+    const token = await TokenModel.findById(tokenId);
+    if (!token) {
+      return res.status(404).json({ error: 'Token not found' });
     }
     
-    // Add user message and AI response to conversation
-    conversation.messages.push(
-      { role: 'user', content: message, timestamp: new Date() },
-      { role: 'assistant', content: response, timestamp: new Date() }
-    );
+    // Enhance agent traits with token information
+    const enhancedTraits = {
+      ...agent.traits,
+      tokenName: token.name,
+      tokenSymbol: token.symbol,
+      tokenDescription: token.description,
+      tokenCreator: token.creator,
+      tokenSupply: token.supply,
+      tokenDenom: token.denom
+    };
     
-    await agent.save();
-    
-    res.json({ response });
-  } catch (error) {
-    console.error('Error chatting with agent:', error);
-    res.status(500).json({ error: 'Failed to generate response' });
+    try {
+      // Generate response using AI with enhanced traits
+      const response = await chatWithAgent(enhancedTraits, message, conversationHistory);
+      
+      // Save the conversation
+      let conversation = agent.conversations.find(conv => conv.userId === userId);
+      if (!conversation) {
+        conversation = { userId, messages: [] };
+        agent.conversations.push(conversation);
+      }
+      
+      // Add user message and AI response to conversation
+      conversation.messages.push(
+        { role: 'user', content: message, timestamp: new Date() },
+        { role: 'assistant', content: response, timestamp: new Date() }
+      );
+      
+      await agent.save();
+      
+      res.json({ response });
+    } catch (aiError: unknown) {
+      console.error('Error generating AI response:', aiError);
+      const errorMessage = aiError instanceof Error ? aiError.message : 'Unknown AI error';
+      
+      // Create a fallback response based on agent traits
+      const fallbackResponse = generateFallbackResponse(enhancedTraits, message);
+      
+      // Save the conversation with fallback response
+      let conversation = agent.conversations.find(conv => conv.userId === userId);
+      if (!conversation) {
+        conversation = { userId, messages: [] };
+        agent.conversations.push(conversation);
+      }
+      
+      // Add user message and fallback response to conversation
+      conversation.messages.push(
+        { role: 'user', content: message, timestamp: new Date() },
+        { role: 'assistant', content: fallbackResponse, timestamp: new Date() }
+      );
+      
+      await agent.save();
+      
+      // Return the fallback response
+      res.json({ 
+        response: fallbackResponse,
+        warning: 'AI service unavailable, using fallback response'
+      });
+    }
+  } catch (error: unknown) {
+    console.error('Error processing chat request:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown server error';
+    res.status(500).json({ 
+      error: 'Failed to process chat request',
+      message: errorMessage
+    });
   }
 });
+
+// Generate a fallback response when AI is unavailable
+function generateFallbackResponse(traits: any, userMessage: string): string {
+  const tokenName = traits.tokenName || 'this token';
+  const tokenSymbol = traits.tokenSymbol || 'TOKEN';
+  const personality = traits.personality || 'helpful';
+  
+  const fallbackResponses = [
+    `As the dedicated representative for ${tokenName} (${tokenSymbol}) with a ${personality} approach, I'm experiencing connection issues with my knowledge base. I'd be happy to answer your question about ${tokenName} once the connection is restored. Please try again in a moment.`,
+    
+    `I apologize for the inconvenience. As ${tokenName}'s AI agent, I'm currently unable to access my complete knowledge base. Your question about "${userMessage.substring(0, 30)}..." is important, and I'll be able to assist you with ${tokenName}-related information once the service is restored.`,
+    
+    `Thank you for your interest in ${tokenName} (${tokenSymbol}). I'm currently operating in fallback mode due to technical limitations. Please try again later for a more detailed response about ${tokenName}'s features and benefits.`,
+    
+    `As ${tokenName}'s dedicated agent, I'm temporarily unable to provide detailed information about this token. The ${tokenName} team is working to restore full functionality as soon as possible. Please check back shortly for complete information about ${tokenSymbol}.`
+  ];
+  
+  // Return a random fallback response
+  return fallbackResponses[Math.floor(Math.random() * fallbackResponses.length)];
+}
 
 // Get conversation history
 app.get('/api/tokens/:tokenId/chat/:userId', async (req, res) => {

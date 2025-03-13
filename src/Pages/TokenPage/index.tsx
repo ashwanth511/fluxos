@@ -190,7 +190,7 @@ const TokenPage: React.FC = () => {
         description: params.description || '',
         imageUrl: params.image || '',
         creator: address,
-        txHash: response.txhash // Use txhash from the response
+        txHash: response.txhash
       };
       
       setCreatedToken(tokenData);
@@ -264,7 +264,10 @@ const TokenPage: React.FC = () => {
 
       // Token was created, now save both token and agent
       const agentData = {
-        token: tokenData,
+        token: {
+          ...tokenData,
+          imageUrl: selectedImage
+        },
         traits: {
           personality: agentPersonality || 'Friendly and professional',
           background: agentBackground || `Expert in ${tokenName} token and blockchain technology`,

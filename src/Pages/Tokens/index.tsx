@@ -1,63 +1,82 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import WalletConnect from '@/components/WalletConnect';
 import DockIcons from "@/components/DockIcons";
-import { Bot, Home, Settings, Workflow, Wallet, BarChart2, Brain, Rocket, Send, Terminal, Search, Filter } from "lucide-react";
+import { Bot, Home, Settings, Workflow, Wallet, BarChart2, Brain, Rocket, Send, Terminal, Search, Filter, Copy, Check } from "lucide-react";
+import { useWallet } from '@/context/WalletContext';
 
 const TokensPage: React.FC = () => {
-  // Temporary token data
-  const [tokens] = useState([
-    {
-      id: '1',
-      name: 'FluxToken',
-      symbol: 'FLX',
-      supply: '1000000',
-      image: 'https://placeholder.com/150',
-      description: 'The native token for FluxOS platform',
-      createdAt: '2024-02-26',
-      price: '0.5',
-      marketCap: '500000',
-      volume24h: '50000'
-    },
-    {
-      id: '2',
-      name: 'AstroToken',
-      symbol: 'ASTRO',
-      supply: '500000',
-      image: 'https://placeholder.com/150',
-      description: 'Powering decentralized astronomy',
-      createdAt: '2024-02-25',
-      price: '1.2',
-      marketCap: '600000',
-      volume24h: '75000'
-    },
-    {
-      id: '3',
-      name: 'QuantumCoin',
-      symbol: 'QTM',
-      supply: '2000000',
-      image: 'https://placeholder.com/150',
-      description: 'Next-gen quantum-resistant token',
-      createdAt: '2024-02-24',
-      price: '0.8',
-      marketCap: '1600000',
-      volume24h: '120000'
-    }
-  ]);
+  const { address } = useWallet();
+  const [tokens, setTokens] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [copiedAddress, setCopiedAddress] = useState('');
 
   const [searchTerm, setSearchTerm] = useState('');
   const [filterOption, setFilterOption] = useState('all');
 
-  const dockIcons = [
-    { icon: Home, label: "Home", path: "/" },
-    { icon: Workflow, label: "IFTTT Builder", path: "/builder" },
-    { icon: Wallet, label: "Wallet", path: "/wallet" },
-    { icon: BarChart2, label: "Trading", path: "/trading" },
-    { icon: Brain, label: "AI Agents", path: "/agents" },
-    { icon: Rocket, label: "Launch", path: "/token" },
-    { icon: Terminal, label: "Console", path: "/console" },
-    { icon: Settings, label: "Settings", path: "/settings" },
-  ];
+  // Fetch tokens from the database
+  useEffect(() => {
+    const fetchTokens = async () => {
+      try {
+        setLoading(true);
+        const response = await fetch('http://localhost:5000/api/tokens');
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch tokens');
+        }
+        
+        const data = await response.json();
+        console.log('Fetched tokens:', data); // Log to see the structure
+        setTokens(data);
+      } catch (err) {
+        console.error('Error fetching tokens:', err);
+        setError('Failed to load tokens. Please try again later.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchTokens();
+  }, []);
+
+  // Copy address to clipboard
+  const copyToClipboard = (e, address) => {
+    e.preventDefault(); // Prevent navigation to token view
+    e.stopPropagation(); // Prevent event bubbling
+    
+    navigator.clipboard.writeText(address)
+      .then(() => {
+        setCopiedAddress(address);
+        setTimeout(() => setCopiedAddress(''), 2000);
+      })
+      .catch(err => {
+        console.error('Failed to copy address:', err);
+      });
+  };
+
+  // Filter and sort tokens based on search term and filter option
+  const filteredTokens = tokens.filter(token => 
+    token.name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    token.symbol?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const sortedTokens = [...filteredTokens].sort((a, b) => {
+    switch (filterOption) {
+      case 'newest':
+        return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+      case 'oldest':
+        return new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
+      case 'highest_cap':
+        return parseFloat(b.marketCap || 0) - parseFloat(a.marketCap || 0);
+      case 'highest_volume':
+        return parseFloat(b.volume24h || 0) - parseFloat(a.volume24h || 0);
+      default:
+        return 0;
+    }
+  });
+
+
 
   return (
     <div className="min-h-screen bg-white py-20 px-8">
@@ -103,49 +122,129 @@ const TokensPage: React.FC = () => {
           </select>
         </div>
 
-        {/* Token Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {tokens.map((token) => (
+        {/* Loading and Error States */}
+        {loading && (
+          <div className="text-center py-10">
+            <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mb-4"></div>
+            <p className="text-gray-600">Loading tokens...</p>
+          </div>
+        )}
+
+        {error && !loading && (
+          <div className="text-center py-10">
+            <p className="text-red-500">{error}</p>
+          </div>
+        )}
+
+        {/* Empty State */}
+        {!loading && !error && sortedTokens.length === 0 && (
+          <div className="text-center py-10">
+            <div className="bg-gray-50 rounded-lg p-8 inline-block mb-4">
+              <Rocket className="mx-auto h-12 w-12 text-gray-400" />
+            </div>
+            <h3 className="text-xl font-medium text-gray-900 mb-2">No tokens found</h3>
+            <p className="text-gray-600 mb-4">
+              {searchTerm ? 'No tokens match your search criteria' : 'You haven\'t created any tokens yet'}
+            </p>
             <Link
-              to={`/token-view/${token.id}`}
-              key={token.id}
-              className="bg-white rounded-xl shadow-lg p-6 border border-gray-200 hover:shadow-xl transition-all duration-200"
+              to="/token"
+              className="px-6 py-3 bg-black text-white rounded-lg hover:bg-gray-800 transition-all duration-200 inline-block"
             >
-              <div className="flex items-center gap-4 mb-4">
-                <img
-                  src={token.image}
-                  alt={token.name}
-                  className="w-12 h-12 rounded-full bg-gray-100"
-                />
-                <div>
-                  <h3 className="text-xl font-semibold text-gray-900">{token.name}</h3>
-                  <p className="text-gray-500">{token.symbol}</p>
-                </div>
-              </div>
-              
-              <p className="text-gray-600 mb-4 line-clamp-2">{token.description}</p>
-              
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm text-gray-500">Market Cap</p>
-                  <p className="font-semibold">${token.marketCap}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">24h Volume</p>
-                  <p className="font-semibold">${token.volume24h}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">Price</p>
-                  <p className="font-semibold">${token.price}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">Supply</p>
-                  <p className="font-semibold">{token.supply}</p>
-                </div>
-              </div>
+              Create Your First Token
             </Link>
-          ))}
-        </div>
+          </div>
+        )}
+
+        {/* Token Grid */}
+        {!loading && !error && sortedTokens.length > 0 && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {sortedTokens.map((token) => (
+              <Link
+                to={`/token-view/${token._id}`}
+                key={token._id}
+                className="bg-white rounded-xl shadow-lg p-6 border border-gray-200 hover:shadow-xl transition-all duration-200"
+              >
+                <div className="flex items-center gap-4 mb-4">
+                  <div className="relative w-12 h-12 rounded-full overflow-hidden">
+                    {/* Fallback to symbol initials */}
+                    <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-blue-100 to-blue-200 text-blue-600 font-bold text-sm">
+                      {token.symbol?.substring(0, 3) || '?'}
+                    </div>
+                    
+                    {token.imageUrl && (
+                      <img
+                        src={token.imageUrl}
+                        alt={token.name}
+                        className="absolute inset-0 w-full h-full object-cover"
+                        onError={(e) => {
+                          // Hide broken image and show fallback
+                          (e.target as HTMLImageElement).style.display = 'none';
+                          e.currentTarget.previousElementSibling.style.display = 'flex';
+                        }}
+                      />
+                    )}
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-semibold text-gray-900">{token.name}</h3>
+                    <p className="text-gray-500">{token.symbol}</p>
+                  </div>
+                </div>
+                
+                <p className="text-gray-600 mb-4 line-clamp-2">{token.description || 'No description available'}</p>
+                
+                {/* Token Address - Copiable */}
+                {token.denom && (
+                  <div 
+                    className="mb-4 bg-gray-50 p-2 rounded-lg flex items-center justify-between cursor-pointer hover:bg-gray-100"
+                    onClick={(e) => copyToClipboard(e, token.denom)}
+                  >
+                    <div className="flex flex-col flex-1 overflow-hidden">
+                      <span className="text-xs font-medium text-gray-700 mb-1">Token Address:</span>
+                      <p className="text-xs text-gray-500 truncate">
+                        {token.denom}
+                      </p>
+                    </div>
+                    <button className="ml-2 p-1 rounded-full hover:bg-gray-200 flex-shrink-0">
+                      {copiedAddress === token.denom ? (
+                        <Check className="h-4 w-4 text-green-500" />
+                      ) : (
+                        <Copy className="h-4 w-4 text-gray-500" />
+                      )}
+                    </button>
+                  </div>
+                )}
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-sm text-gray-500">Market Cap</p>
+                    <p className="font-semibold">${token.marketCap || '0'}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500">24h Volume</p>
+                    <p className="font-semibold">${token.volume24h || '0'}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500">Price</p>
+                    <p className="font-semibold">${token.price || '0'}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500">Supply</p>
+                    <p className="font-semibold">{token.supply || 'N/A'}</p>
+                  </div>
+                </div>
+
+           
+
+                {/* Token Owner Badge */}
+                {token.creator === address && (
+                  <div className="mt-4 inline-block px-3 py-1 bg-gray-100 rounded-full text-xs font-medium text-gray-800">
+                    Your Token
+                  </div>
+                )}
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
       <DockIcons/>
     </div>

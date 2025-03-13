@@ -1,31 +1,163 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import WalletConnect from '@/components/WalletConnect';
 import DockIcons from "@/components/DockIcons";
 import { Bot, Home, Settings, Workflow, Wallet, BarChart2, Brain, Rocket, Send, Terminal, ChevronLeft, Share2, ExternalLink } from "lucide-react";
+import { useWallet } from '@/context/WalletContext';
 
 const TokenViewPage: React.FC = () => {
   const { id } = useParams();
+  const { address } = useWallet();
+  const chatEndRef = useRef<HTMLDivElement>(null);
   
-  // Temporary token data - replace with actual data fetch
-  const [token] = useState({
-    id: '1',
-    name: 'FluxToken',
-    symbol: 'FLX',
-    supply: '1000000',
-    image: 'https://placeholder.com/150',
-    description: 'The native token for FluxOS platform. Built with advanced AI capabilities and designed for seamless trading automation.',
-    createdAt: '2024-02-26',
-    price: '0.5',
-    marketCap: '500000',
-    volume24h: '50000',
-    creator: '0x1234...5678',
-    holders: 150,
-    transactions: 1250
-  });
-
+  const [token, setToken] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState('overview');
   const [message, setMessage] = useState('');
+  const [chatMessages, setChatMessages] = useState<Array<{role: string, content: string, timestamp: Date}>>([]);
+  const [isSending, setIsSending] = useState(false);
+
+  // Fetch token data
+  useEffect(() => {
+    const fetchToken = async () => {
+      try {
+        setLoading(true);
+        const response = await fetch(`http://localhost:5000/api/tokens/id/${id}`);
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch token');
+        }
+        
+        const data = await response.json();
+        console.log('Token data:', data);
+        setToken(data);
+      } catch (err) {
+        console.error('Error fetching token:', err);
+        setError('Failed to load token data');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (id) {
+      fetchToken();
+    }
+  }, [id]);
+
+  // Fetch chat history
+  useEffect(() => {
+    const fetchChatHistory = async () => {
+      if (!token?._id || !address) return;
+      
+      try {
+        const response = await fetch(`http://localhost:5000/api/tokens/${token._id}/chat/${address}`);
+        
+        if (!response.ok) {
+          console.error('Failed to fetch chat history');
+          return;
+        }
+        
+        const data = await response.json();
+        if (data.messages && data.messages.length > 0) {
+          setChatMessages(data.messages);
+        }
+      } catch (err) {
+        console.error('Error fetching chat history:', err);
+      }
+    };
+
+    if (token && address) {
+      fetchChatHistory();
+    }
+  }, [token, address]);
+
+  // Scroll to bottom of chat
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMessages]);
+
+  const handleSendMessage = async () => {
+    if (!message.trim() || !token?._id) return;
+
+    try {
+      setIsSending(true);
+      // Add user message to chat immediately
+      const userMessage = { role: 'user', content: message, timestamp: new Date() };
+      setChatMessages(prev => [...prev, userMessage]);
+      setMessage('');
+
+      // Format conversation history for the backend
+      const formattedHistory = chatMessages.map(msg => ({
+        role: msg.role,
+        content: msg.content
+      }));
+
+      // Send message to backend
+      const response = await fetch(`http://localhost:5000/api/tokens/${token._id}/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: userMessage.content,
+          userId: address || 'anonymous',
+          conversationHistory: formattedHistory
+        }),
+      });
+
+      // Parse the response data
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || data.error || `Server error: ${response.status}`);
+      }
+      
+      // Add AI response to chat
+      setChatMessages(prev => [...prev, {
+        role: 'assistant',
+        content: data.response,
+        timestamp: new Date()
+      }]);
+    } catch (err: unknown) {
+      console.error('Error sending message:', err);
+      // Add fallback error message from the AI
+      setChatMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `I'm sorry, I'm having trouble responding right now. Error: ${err instanceof Error ? err.message : 'Unknown error'}. Please try again in a moment.`,
+        timestamp: new Date()
+      }]);
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-white py-20 px-8 flex items-center justify-center">
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mb-4"></div>
+          <p className="text-gray-600">Loading token data...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !token) {
+    return (
+      <div className="min-h-screen bg-white py-20 px-8 flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-red-500 mb-4">{error || 'Token not found'}</p>
+          <Link 
+            to="/tokens"
+            className="px-6 py-3 bg-black text-white rounded-lg hover:bg-gray-800 transition-all duration-200"
+          >
+            Back to Tokens
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-white py-20 px-8">
@@ -40,11 +172,27 @@ const TokenViewPage: React.FC = () => {
               <ChevronLeft className="w-5 h-5" />
               <span>Back to Tokens</span>
             </Link>
-            <img
-              src={token.image}
-              alt={token.name}
-              className="w-16 h-16 rounded-full bg-gray-100"
-            />
+            <div className="relative w-16 h-16 rounded-full overflow-hidden bg-gray-100">
+              {/* Fallback to symbol initials */}
+              <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-blue-100 to-blue-200 text-blue-600 font-bold">
+                {token.symbol?.substring(0, 3) || '?'}
+              </div>
+              
+              {token.imageUrl && (
+                <img
+                  src={token.imageUrl}
+                  alt={token.name}
+                  className="absolute inset-0 w-full h-full object-cover"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = 'none';
+                    const prevElement = e.currentTarget.previousElementSibling;
+                    if (prevElement) {
+                      (prevElement as HTMLElement).style.display = 'flex';
+                    }
+                  }}
+                />
+              )}
+            </div>
             <div>
               <h1 className="text-4xl font-bold text-gray-900">{token.name}</h1>
               <p className="text-gray-600">{token.symbol}</p>
@@ -65,19 +213,19 @@ const TokenViewPage: React.FC = () => {
             <div className="grid grid-cols-4 gap-4">
               <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-200">
                 <p className="text-sm text-gray-500">Price</p>
-                <p className="text-2xl font-semibold">${token.price}</p>
+                <p className="text-2xl font-semibold">${token.price || '0'}</p>
               </div>
               <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-200">
                 <p className="text-sm text-gray-500">Market Cap</p>
-                <p className="text-2xl font-semibold">${token.marketCap}</p>
+                <p className="text-2xl font-semibold">${token.marketCap || '0'}</p>
               </div>
               <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-200">
                 <p className="text-sm text-gray-500">24h Volume</p>
-                <p className="text-2xl font-semibold">${token.volume24h}</p>
+                <p className="text-2xl font-semibold">${token.volume24h || '0'}</p>
               </div>
               <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-200">
                 <p className="text-sm text-gray-500">Holders</p>
-                <p className="text-2xl font-semibold">{token.holders}</p>
+                <p className="text-2xl font-semibold">{token.holders || '0'}</p>
               </div>
             </div>
 
@@ -94,16 +242,18 @@ const TokenViewPage: React.FC = () => {
                 >
                   Overview
                 </button>
-                <button
-                  onClick={() => setActiveTab('chat')}
-                  className={`pb-4 text-sm font-medium ${
-                    activeTab === 'chat'
-                      ? 'text-blue-600 border-b-2 border-blue-600'
-                      : 'text-gray-500 hover:text-gray-700'
-                  }`}
-                >
-                  Chat
-                </button>
+                {token.agent && (
+                  <button
+                    onClick={() => setActiveTab('chat')}
+                    className={`pb-4 text-sm font-medium ${
+                      activeTab === 'chat'
+                        ? 'text-blue-600 border-b-2 border-blue-600'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    Chat with Agent
+                  </button>
+                )}
                 <button
                   onClick={() => setActiveTab('transactions')}
                   className={`pb-4 text-sm font-medium ${
@@ -129,8 +279,8 @@ const TokenViewPage: React.FC = () => {
                     <h3 className="text-lg font-semibold mb-2">Token Details</h3>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <p className="text-sm text-gray-500">Contract Address</p>
-                        <p className="font-mono">{token.creator}</p>
+                        <p className="text-sm text-gray-500">Token Address</p>
+                        <p className="font-mono text-sm break-all">{token.denom}</p>
                       </div>
                       <div>
                         <p className="text-sm text-gray-500">Total Supply</p>
@@ -138,41 +288,121 @@ const TokenViewPage: React.FC = () => {
                       </div>
                       <div>
                         <p className="text-sm text-gray-500">Created On</p>
-                        <p>{token.createdAt}</p>
+                        <p>{new Date(token.createdAt).toLocaleDateString()}</p>
                       </div>
                       <div>
-                        <p className="text-sm text-gray-500">Total Transactions</p>
-                        <p>{token.transactions}</p>
+                        <p className="text-sm text-gray-500">Creator</p>
+                        <p className="font-mono text-sm break-all">{token.creator}</p>
                       </div>
                     </div>
                   </div>
+                  
+                  {/* Agent Information */}
+                  {token.agent && (
+                    <div>
+                      <h3 className="text-lg font-semibold mb-2">Token Agent</h3>
+                      <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-6">
+                        <div className="grid grid-cols-2 gap-6">
+                          <div>
+                            <p className="text-sm font-medium text-gray-700 mb-1">Personality</p>
+                            <p className="text-gray-600">{token.agent.traits.personality}</p>
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-gray-700 mb-1">Background</p>
+                            <p className="text-gray-600">{token.agent.traits.background}</p>
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-gray-700 mb-1">Specialties</p>
+                            <div className="flex flex-wrap gap-2">
+                              {token.agent.traits.specialties.map((specialty: string, index: number) => (
+                                <span key={index} className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs">
+                                  {specialty}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-gray-700 mb-1">Knowledge Domains</p>
+                            <div className="flex flex-wrap gap-2">
+                              {token.agent.traits.knowledgeDomains.map((domain: string, index: number) => (
+                                <span key={index} className="px-2 py-1 bg-indigo-100 text-indigo-700 rounded-full text-xs">
+                                  {domain}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
-              {activeTab === 'chat' && (
+              {activeTab === 'chat' && token.agent && (
                 <div className="space-y-6">
                   <div className="h-96 bg-gray-50 rounded-lg p-4 overflow-y-auto">
-                    {/* Chat messages will go here */}
-                    <div className="text-center text-gray-500">
-                      Start chatting about {token.name}
-                    </div>
+                    {chatMessages.length === 0 ? (
+                      <div className="text-center text-gray-500">
+                        Start chatting with the {token.name} AI Agent
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {chatMessages.map((msg, index) => (
+                          <div
+                            key={index}
+                            className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                          >
+                            <div
+                              className={`max-w-[80%] p-3 rounded-lg ${
+                                msg.role === 'user'
+                                  ? 'bg-blue-600 text-white'
+                                  : 'bg-gray-100 text-gray-800'
+                              }`}
+                            >
+                              <p className="text-sm">{msg.content}</p>
+                              <p className="text-xs mt-1 opacity-70">
+                                {new Date(msg.timestamp).toLocaleTimeString()}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                        <div ref={chatEndRef} />
+                      </div>
+                    )}
                   </div>
                   <div className="flex gap-4">
                     <input
                       type="text"
                       value={message}
                       onChange={(e) => setMessage(e.target.value)}
-                      placeholder="Type your message..."
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          handleSendMessage();
+                        }
+                      }}
+                      placeholder="Ask the AI agent anything about this token..."
                       className="flex-1 px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      disabled={isSending}
                     />
                     <button
-                      onClick={() => {
-                        // Handle sending message
-                        setMessage('');
-                      }}
-                      className="px-6 py-3 bg-black text-white rounded-lg hover:bg-gray-800 transition-all duration-200"
+                      onClick={handleSendMessage}
+                      disabled={isSending}
+                      className={`px-6 py-3 bg-black text-white rounded-lg transition-all duration-200 flex items-center gap-2 ${
+                        isSending ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-800'
+                      }`}
                     >
-                      Send
+                      {isSending ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                          <span>Sending...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Send className="w-5 h-5" />
+                          <span>Send</span>
+                        </>
+                      )}
                     </button>
                   </div>
                 </div>
@@ -222,7 +452,6 @@ const TokenViewPage: React.FC = () => {
                     />
                     <select className="px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
                       <option value="usdt">USDT</option>
-                      <option value="usdc">USDC</option>
                       <option value="inj">INJ</option>
                     </select>
                   </div>
@@ -270,21 +499,18 @@ const TokenViewPage: React.FC = () => {
               <h3 className="text-lg font-semibold mb-4">Links</h3>
               <div className="space-y-3">
                 <a
-                  href="#"
-                  className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50"
-                >
-                  <span>Website</span>
-                  <ExternalLink className="w-4 h-4" />
-                </a>
-                <a
-                  href="#"
+                  href={`https://testnet.explorer.injective.network/token/${token.denom}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50"
                 >
                   <span>Explorer</span>
                   <ExternalLink className="w-4 h-4" />
                 </a>
                 <a
-                  href="#"
+                  href="https://docs.injective.network/"
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50"
                 >
                   <span>Documentation</span>
