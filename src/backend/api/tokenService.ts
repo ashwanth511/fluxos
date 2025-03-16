@@ -36,6 +36,19 @@ export const getTokenById = async (id: string) => {
   }
 };
 
+// Get tokens by creator address
+export const getTokensByCreator = async (creator: string) => {
+  try {
+    const tokens = await TokenModel.find({ creator })
+      .populate('agent')
+      .sort({ createdAt: -1 });
+    return tokens;
+  } catch (error) {
+    console.error('Error fetching tokens by creator:', error);
+    throw error;
+  }
+};
+
 // Create token with agent
 export const createTokenWithAgent = async (data: any) => {
   try {

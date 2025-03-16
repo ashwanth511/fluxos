@@ -17,6 +17,7 @@
     "@injectivelabs/sdk-ts": "^1.14.41",
     "@injectivelabs/utils": "^1.14.41",
     "@injectivelabs/wallet-ts": "^1.14.41",
+    "@moonpay/moonpay-js": "^0.6.6",
     "@radix-ui/react-navigation-menu": "^1.2.5",
     "@radix-ui/react-slot": "^1.1.2",
     "@tailwindcss/vite": "^4.0.7",

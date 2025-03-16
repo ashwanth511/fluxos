@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Button } from './ui/button'
 import { Wallet as WalletIcon, ChevronDown } from 'lucide-react'
 import { Wallet } from '@injectivelabs/wallet-ts'
@@ -6,6 +6,10 @@ import { Network } from '@injectivelabs/networks'
 import { AtomIcon } from './atom-icon'
 import { Link } from 'react-router-dom'
 import { useWallet } from '../context/WalletContext'
+
+interface WalletConnectProps {
+  setAddress?: (address: string) => void;
+}
 
 // Define supported wallets
 const supportedWallets = [
@@ -16,7 +20,7 @@ const supportedWallets = [
   { type: Wallet.Cosmostation, name: 'Cosmostation', category: 'cosmos' }
 ] as const
 
-export default function WalletConnect() {
+export default function WalletConnect({ setAddress }: WalletConnectProps) {
   const { 
     isConnected, 
     address, 
@@ -30,6 +34,12 @@ export default function WalletConnect() {
 
   const [showWalletDropdown, setShowWalletDropdown] = useState(false)
   const [showNetworkDropdown, setShowNetworkDropdown] = useState(false)
+
+  useEffect(() => {
+    if (setAddress && address) {
+      setAddress(address);
+    }
+  }, [address, setAddress]);
 
   const formatAddress = (addr: string) => {
     if (!addr) return ''

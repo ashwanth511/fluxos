@@ -2,15 +2,19 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import WalletConnect from '@/components/WalletConnect';
 import DockIcons from "@/components/DockIcons"
 import { useWallet } from '@/context/WalletContext';
-import { ChainId } from '@injectivelabs/ts-types';
-import { BigNumberInBase } from '@injectivelabs/utils';
+
 import { 
   MsgCreateDenom,
   MsgMint,
-  MsgSetDenomMetadata
+  MsgSetDenomMetadata,
+  MsgInstantSpotMarketLaunch
 } from '@injectivelabs/sdk-ts';
+
 import { MsgBroadcaster } from '@injectivelabs/wallet-ts';
 import Confetti from 'react-confetti';
+import { Network, getNetworkEndpoints } from '@injectivelabs/networks';
+import { BigNumberInBase } from '@injectivelabs/utils';
+import { ChainGrpcExchangeApi } from '@injectivelabs/sdk-ts';
 
 // Custom hook for window size
 const useWindowSize = () => {
@@ -34,6 +38,74 @@ const useWindowSize = () => {
   return windowSize;
 };
 
+interface LiquidityModalProps {
+  token: any;
+  address: string;
+  onSubmit: (quoteAsset: string) => void;
+  onClose: () => void;
+}
+
+const LiquidityModal: React.FC<LiquidityModalProps> = ({ 
+  token, 
+  address,
+  onSubmit, 
+  onClose
+}) => {
+  const [quoteAsset, setQuoteAsset] = useState('USDT');
+
+  const handleSubmit = () => {
+    onSubmit(quoteAsset);
+  };
+
+  return (
+    <div className="fixed z-10 inset-0 overflow-y-auto">
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="fixed inset-0 bg-black opacity-30" onClick={onClose}></div>
+        <div className="bg-white rounded-lg overflow-hidden shadow-xl transform transition-all sm:max-w-lg sm:w-full">
+          <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+            <h3 className="text-lg leading-6 font-medium text-gray-900">
+              Add Liquidity for {token?.name} ({token?.symbol})
+            </h3>
+            <div className="mt-4">
+              <div>
+                <label htmlFor="quoteAsset" className="block text-sm font-medium text-gray-700">
+                  Quote Asset
+                </label>
+                <select
+                  name="quoteAsset"
+                  id="quoteAsset"
+                  value={quoteAsset}
+                  onChange={(e) => setQuoteAsset(e.target.value)}
+                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                >
+                  <option value="USDT">USDT</option>
+                  <option value="INJ">INJ</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          <div className="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+            <button
+              type="button"
+              onClick={handleSubmit}
+              className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm"
+            >
+              Submit
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const TokenPage: React.FC = () => {
   const { address, walletStrategy, network } = useWallet();
   const [activeTab, setActiveTab] = useState('ai');
@@ -50,6 +122,11 @@ const TokenPage: React.FC = () => {
   const [successToken, setSuccessToken] = useState<any>(null);
   const [successAgent, setSuccessAgent] = useState<any>(null);
   const [createdToken, setCreatedToken] = useState<any>(null);
+  
+  // User tokens state for Flux Into Market tab
+  const [userTokens, setUserTokens] = useState<any[]>([]);
+  const [loadingUserTokens, setLoadingUserTokens] = useState(false);
+  const [userTokensError, setUserTokensError] = useState('');
   
   // Agent traits state
   const [agentPersonality, setAgentPersonality] = useState('');
@@ -71,6 +148,13 @@ const TokenPage: React.FC = () => {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { width, height } = useWindowSize();
+
+  // Fetch user tokens when tab changes to 'market' or address changes
+  useEffect(() => {
+    if (activeTab === 'market' && address) {
+      fetchUserTokens();
+    }
+  }, [activeTab, address]);
 
   const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -118,25 +202,25 @@ const TokenPage: React.FC = () => {
       const denom = `factory/${address}/${subdenom}`;
 
       // Create denom message with proper structure
-      const createDenomMsg = {
+      const createDenomMsg = new MsgCreateDenom({
         subdenom: subdenom,
         sender: address
-      };
+      });
 
       // Convert supply to the proper format - using 18 decimals for token
       const amountInWei = new BigNumberInBase(params.supply).toWei(18).toFixed();
 
       // Create mint message with proper structure
-      const mintMsg = {
+      const mintMsg = new MsgMint({
         sender: address,
         amount: {
           denom: denom,
           amount: amountInWei
         }
-      };
+      });
 
       // Create metadata message with proper structure
-      const metadataMsg = {
+      const metadataMsg = new MsgSetDenomMetadata({
         sender: address,
         metadata: {
           base: denom,
@@ -160,23 +244,18 @@ const TokenPage: React.FC = () => {
             }
           ]
         }
-      };
+      });
 
       // Create broadcaster using wallet strategy
       const broadcaster = new MsgBroadcaster({
-        network: network,
+        network: Network.Testnet,
         walletStrategy
       });
-
-      // Create actual message instances
-      const createDenomMsgInstance = MsgCreateDenom.fromJSON(createDenomMsg);
-      const mintMsgInstance = MsgMint.fromJSON(mintMsg);
-      const metadataMsgInstance = MsgSetDenomMetadata.fromJSON(metadataMsg);
 
       // Broadcast transaction with all messages
       const response = await broadcaster.broadcast({
         injectiveAddress: address,
-        msgs: [createDenomMsgInstance, mintMsgInstance, metadataMsgInstance]
+        msgs: [createDenomMsg, mintMsg, metadataMsg]
       });
       
       console.log('Token created successfully:', response);
@@ -190,7 +269,7 @@ const TokenPage: React.FC = () => {
         description: params.description || '',
         imageUrl: params.image || '',
         creator: address,
-        txHash: response.txhash
+        txHash: response.txHash  //tx.has
       };
       
       setCreatedToken(tokenData);
@@ -198,7 +277,7 @@ const TokenPage: React.FC = () => {
       // Return the token data with txHash
       return {
         ...tokenData,
-        txhash: response.txhash
+        txhash: response.txHash
       };
 
     } catch (err: any) {
@@ -332,6 +411,38 @@ const TokenPage: React.FC = () => {
     setAgentInterests('');
     setAgentCommunicationStyle('');
     setAgentKnowledgeDomains('');
+  };
+
+  // Fetch tokens created by the current user
+  const fetchUserTokens = async () => {
+    if (!address) return;
+    
+    try {
+      setLoadingUserTokens(true);
+      setUserTokensError('');
+      
+      const response = await fetch(`http://localhost:5000/api/tokens/creator/${address}`);
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch your tokens');
+      }
+      
+      const data = await response.json();
+      setUserTokens(data);
+    } catch (error: any) {
+      console.error('Error fetching user tokens:', error);
+      setUserTokensError(error.message || 'Failed to load your tokens');
+    } finally {
+      setLoadingUserTokens(false);
+    }
+  };
+
+  // Add token to market (Helix exchange)
+  const addTokenToMarket = async (token: any) => {
+    if (token) {
+      setCreatedToken(token);
+      setShowLiquidityModal(true);
+    }
   };
 
   const handleImageButtonClick = () => {
@@ -521,7 +632,7 @@ const TokenPage: React.FC = () => {
 
   // Add this component to display trading strategies
   const TradingStrategies = () => {
-    return (
+  return (
       <div className="mt-8 bg-white p-6 rounded-lg shadow-md">
         <h2 className="text-xl font-bold mb-4">Trading Strategies</h2>
         <p className="text-gray-600 mb-4">
@@ -723,6 +834,109 @@ const TokenPage: React.FC = () => {
     }
   };
 
+  const [showLiquidityModal, setShowLiquidityModal] = useState(false);
+
+  // Define the MarketParams interface to match token-station
+  interface MarketParams {
+    sender: string;
+    baseDenom: string;
+    quoteDenom: string;
+    minPriceTickSize: string;
+    minQuantityTickSize: string;
+    ticker: string;
+  }
+
+  const handleLiquiditySubmit = async (quoteAsset: string) => {
+    if (!address || !walletStrategy) return;
+    
+    try {
+      setLoading(true);
+      setError('');
+
+      // Get network endpoints
+      const endpoints = getNetworkEndpoints(Network.Testnet);
+      
+      // Initialize the exchange API
+      const exchangeApi = new ChainGrpcExchangeApi(endpoints.grpc);
+      
+      // Get the correct quote denom
+      const quoteDenom = quoteAsset === 'USDT' 
+        ? 'peggy0x87aB3B4C8661e07D6372361211B96ed4Dc36B1B5' 
+        : 'inj';
+
+      // Set decimals based on the quote asset
+      const baseDecimals = 18;
+      const quoteDecimals = quoteAsset === 'USDT' ? 6 : 18;
+
+      // Calculate tick sizes properly
+      const baseTick = new BigNumberInBase(0.001).toFixed();
+      const quoteTick = new BigNumberInBase(0.000001).toFixed();
+
+      // Calculate the actual tick sizes with proper decimals
+      const minQuantityTickSize = new BigNumberInBase(baseTick)
+        .toWei(baseDecimals)
+        .toFixed();
+
+      const minPriceTickSize = new BigNumberInBase(quoteTick)
+        .toWei(quoteDecimals)
+        .toFixed();
+
+      // Construct market parameters
+      const marketParams = {
+        sender: address,
+        baseDenom: createdToken.denom, // Use the created token's denom
+        quoteDenom: quoteDenom,
+        ticker: `${createdToken.symbol}/${quoteAsset}`,
+        minPriceTickSize,
+        minQuantityTickSize
+      };
+
+      console.log('Market parameters:', {
+        baseTick,
+        quoteTick,
+        baseDecimals,
+        quoteDecimals,
+        minQuantityTickSize,
+        minPriceTickSize
+      });
+
+      // Create market launch message
+      const msg = MsgInstantSpotMarketLaunch.fromJSON({
+        market: marketParams,
+        proposer: address
+      });
+
+      // Create broadcaster with proper configuration
+      const msgBroadcastClient = new MsgBroadcaster({
+        network: Network.Testnet,
+        endpoints: endpoints,
+        walletStrategy
+      });
+
+      // Broadcast the transaction
+      const response = await msgBroadcastClient.broadcast({
+        msgs: [msg],
+        injectiveAddress: address
+      });
+
+      if (!response.txHash) {
+        throw new Error('Failed to create market: No transaction hash received');
+      }
+
+      console.log('Market created successfully:', response);
+      setShowLiquidityModal(false);
+      
+      // Show success message with transaction hash
+      alert(`Market created successfully! Transaction hash: ${response.txHash}`);
+
+    } catch (error: any) {
+      console.error('Error creating market:', error);
+      setError(error.message || 'Failed to create market');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-white p-8 py-20 relative">
       {showConfetti && <Confetti width={width} height={height} recycle={false} />}
@@ -758,6 +972,15 @@ const TokenPage: React.FC = () => {
         </div>
       )}
       
+      {showLiquidityModal && (
+        <LiquidityModal 
+          token={createdToken}
+          address={address}
+          onSubmit={handleLiquiditySubmit}
+          onClose={() => setShowLiquidityModal(false)}
+        />
+      )}
+      
       <div className="max-w-6xl mx-auto">
         <div className="flex justify-between items-center mb-8">
           <div>
@@ -775,7 +998,7 @@ const TokenPage: React.FC = () => {
                   setActiveTab('ai');
                   setCurrentStep(1);
                 }}
-                className={`w-1/2 py-6 px-1 text-center border-b-2 font-medium text-lg transition-all duration-200 ${
+                className={`w-1/3 py-6 px-1 text-center border-b-2 font-medium text-lg transition-all duration-200 ${
                   activeTab === 'ai'
                     ? 'border-blue-500 text-blue-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -788,13 +1011,26 @@ const TokenPage: React.FC = () => {
                   setActiveTab('manual');
                   setCurrentStep(1);
                 }}
-                className={`w-1/2 py-6 px-1 text-center border-b-2 font-medium text-lg transition-all duration-200 ${
+                className={`w-1/3 py-6 px-1 text-center border-b-2 font-medium text-lg transition-all duration-200 ${
                   activeTab === 'manual'
                     ? 'border-blue-500 text-blue-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
                 Manual Creation
+              </button>
+              <button
+                onClick={() => {
+                  setActiveTab('market');
+                  fetchUserTokens();
+                }}
+                className={`w-1/3 py-6 px-1 text-center border-b-2 font-medium text-lg transition-all duration-200 ${
+                  activeTab === 'market'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                Flux Into Market
               </button>
             </nav>
           </div>
@@ -804,8 +1040,8 @@ const TokenPage: React.FC = () => {
               <div>
                 <TradingStrategies />
                 <TokenCreationSuggestions />
-                <div className="space-y-8">
-                  <div className="bg-gray-50 rounded-lg p-6">
+              <div className="space-y-8">
+                <div className="bg-gray-50 rounded-lg p-6">
                     <div className="flex items-center mb-4">
                       <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-6 h-6 text-white">
@@ -834,19 +1070,19 @@ const TokenPage: React.FC = () => {
                       <div ref={chatEndRef} />
                     </div>
                     <div className="flex items-center">
-                      <textarea
-                        value={aiPrompt}
-                        onChange={(e) => setAiPrompt(e.target.value)}
+                  <textarea
+                    value={aiPrompt}
+                    onChange={(e) => setAiPrompt(e.target.value)}
                         onKeyDown={handleKeyDown}
                         placeholder="Ask about token creation..."
                         className="w-full p-4 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 resize-none"
                         rows={3}
-                      />
-                    </div>
+                  />
+                </div>
                   </div>
 
                   <div className="flex justify-end">
-                    <button
+                <button
                       onClick={handleSendMessage}
                       disabled={!address || loading || !aiPrompt}
                       className={`px-8 py-3 rounded-lg text-white font-medium ${
@@ -857,25 +1093,24 @@ const TokenPage: React.FC = () => {
                     >
                       {loading ? (
                         <>
-                          <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                           </svg>
                           Generating...
                         </>
                       ) : (
                         <>
                           Send
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 ml-2" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clipRule="evenodd" />
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 ml-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
                           </svg>
                         </>
                       )}
-                    </button>
-                  </div>
+                </button>
+              </div>
                 </div>
               </div>
-            ) : (
+            ) : activeTab === 'manual' ? (
               <div className="space-y-8">
                 <div className="flex items-center justify-center">
                   <div className="flex items-center space-x-4">
@@ -900,53 +1135,53 @@ const TokenPage: React.FC = () => {
                 </h2>
 
                 {currentStep === 1 ? (
-                  <div className="space-y-6">
+                <div className="space-y-6">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div>
+                  <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Token Name
-                        </label>
-                        <input
-                          type="text"
-                          value={tokenName}
-                          onChange={(e) => setTokenName(e.target.value)}
+                      Token Name
+                    </label>
+                    <input
+                      type="text"
+                      value={tokenName}
+                      onChange={(e) => setTokenName(e.target.value)}
                           placeholder="e.g. My Awesome Token"
                           className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
-                        />
-                      </div>
-                      <div>
+                    />
+                  </div>
+                  <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Token Symbol
-                        </label>
-                        <input
-                          type="text"
-                          value={tokenSymbol}
-                          onChange={(e) => setTokenSymbol(e.target.value)}
+                      Token Symbol
+                    </label>
+                    <input
+                      type="text"
+                      value={tokenSymbol}
+                      onChange={(e) => setTokenSymbol(e.target.value)}
                           placeholder="e.g. MAT"
                           className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
-                        />
-                      </div>
+                    />
+                  </div>
                     </div>
 
-                    <div>
+                  <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Token Supply
-                      </label>
-                      <input
-                        type="text"
-                        value={tokenSupply}
-                        onChange={(e) => setTokenSupply(e.target.value)}
+                    </label>
+                    <input
+                      type="text"
+                      value={tokenSupply}
+                      onChange={(e) => setTokenSupply(e.target.value)}
                         placeholder="e.g. 1000000"
                         className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
-                      />
-                    </div>
+                    />
+                  </div>
 
-                    <div>
+                  <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Token Image
-                      </label>
+                    </label>
                       <div className="flex items-center space-x-4">
-                        <input
+                    <input
                           type="file"
                           ref={fileInputRef}
                           onChange={handleImageUpload}
@@ -965,20 +1200,28 @@ const TokenPage: React.FC = () => {
                               src={selectedImage} 
                               alt="Token" 
                               className="h-10 w-10 rounded-full object-cover"
+                              onError={(e) => {
+                                const imgElement = e.target as HTMLImageElement;
+                                const fallbackElement = imgElement.previousElementSibling as HTMLElement;
+                                if (imgElement && fallbackElement) {
+                                  imgElement.style.display = 'none';
+                                  fallbackElement.style.display = 'flex';
+                                }
+                              }}
                             />
                             <span className="ml-2 text-sm text-green-600">Image uploaded</span>
-                          </div>
+                  </div>
                         )}
                       </div>
                     </div>
 
-                    <div>
+                  <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Token Description
-                      </label>
-                      <textarea
-                        value={tokenDescription}
-                        onChange={(e) => setTokenDescription(e.target.value)}
+                      Token Description
+                    </label>
+                    <textarea
+                      value={tokenDescription}
+                      onChange={(e) => setTokenDescription(e.target.value)}
                         placeholder="Describe your token..."
                         className="w-full h-32 p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
                       />
@@ -1033,10 +1276,10 @@ const TokenPage: React.FC = () => {
                             onChange={(e) => setAgentBackground(e.target.value)}
                             placeholder="Create a compelling origin story for your agent..."
                             className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 bg-white"
-                            rows={4}
-                          />
+                      rows={4}
+                    />
                           <p className="mt-2 text-sm text-gray-500">Give your agent a unique history and purpose</p>
-                        </div>
+                  </div>
 
                         <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-200">
                           <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -1131,8 +1374,8 @@ const TokenPage: React.FC = () => {
                         </svg>
                         Back to Token Details
                       </button>
-                      <button
-                        onClick={handleManualTokenCreation}
+                  <button
+                    onClick={handleManualTokenCreation}
                         disabled={loading}
                         className={`px-8 py-3 rounded-lg text-white font-medium flex items-center ${
                           loading ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
@@ -1141,8 +1384,7 @@ const TokenPage: React.FC = () => {
                         {loading ? (
                           <>
                             <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                             </svg>
                             Creating...
                           </>
@@ -1154,8 +1396,154 @@ const TokenPage: React.FC = () => {
                             </svg>
                           </>
                         )}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+            ) : (
+              <div className="space-y-8">
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-2xl font-bold text-gray-900">Your Tokens</h2>
+                  <button
+                    onClick={fetchUserTokens}
+                    className="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 flex items-center"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M4 2a2 2 0 00-2 2v11a3 3 0 106 0V4a2 2 0 00-2-2H0L10.93 8.93a1.5 1.5 0 011.414 0l3 3a1.5 1.5 0 01-1.414 1.414l-3-3A1.5 1.5 0 009.06 8.06L4 12a2 2 0 100 4zm7-7a2 2 0 00-2 2v11a3 3 0 106 0V4a2 2 0 00-2-2h0L14.93 8.93a1.5 1.5 0 011.414 0l3 3a1.5 1.5 0 01-1.414 1.414l-3-3A1.5 1.5 0 0113.06 8.06L10 12a2 2 0 100 4z" clipRule="evenodd" />
+                    </svg>
+                    Refresh
+                  </button>
+                </div>
+                
+                {!address && (
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto text-yellow-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                    </svg>
+                    <h3 className="text-lg font-medium text-yellow-800 mb-2">Connect Your Wallet</h3>
+                    <p className="text-yellow-600 mb-4">Please connect your wallet to see your tokens and add them to the market.</p>
+                    <WalletConnect />
+                  </div>
+                )}
+                
+                {loadingUserTokens && (
+                  <div className="flex justify-center items-center py-12">
+                    <svg className="animate-spin h-8 w-8 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                  </div>
+                )}
+                
+                {userTokensError && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto text-red-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <h3 className="text-lg font-medium text-red-800 mb-2">Error Loading Tokens</h3>
+                    <p className="text-red-600">{userTokensError}</p>
+                  </div>
+                )}
+                
+                {!loadingUserTokens && !userTokensError && userTokens.length === 0 && address && (
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 text-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 mx-auto text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                    </svg>
+                    <h3 className="text-xl font-medium text-gray-800 mb-2">No Tokens Found</h3>
+                    <p className="text-gray-600 mb-6">You haven't created any tokens yet. Create a token first using AI-Assisted or Manual Creation.</p>
+                    <div className="flex justify-center space-x-4">
+                      <button
+                        onClick={() => setActiveTab('ai')}
+                        className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                      >
+                        AI-Assisted Creation
+                      </button>
+                      <button
+                        onClick={() => {
+                          setActiveTab('manual');
+                          setCurrentStep(1);
+                        }}
+                        className="px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
+                      >
+                        Manual Creation
                       </button>
                     </div>
+                  </div>
+                )}
+                
+                {!loadingUserTokens && !userTokensError && userTokens.length > 0 && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {userTokens.map((token) => (
+                      <div key={token._id} className="bg-white rounded-xl shadow-lg p-6 border border-gray-200">
+                        <div className="flex items-center gap-4 mb-4">
+                          <div className="relative w-12 h-12 rounded-full overflow-hidden">
+                            {/* Fallback to symbol initials */}
+                            <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-blue-100 to-blue-200 text-blue-600 font-bold text-sm">
+                              {token.symbol?.substring(0, 3) || '?'}
+                            </div>
+                            
+                            {token.imageUrl && (
+                              <img
+                                src={token.imageUrl}
+                                alt={token.name}
+                                className="absolute inset-0 w-full h-full object-cover"
+                                onError={(e) => {
+                                  const imgElement = e.target as HTMLImageElement;
+                                  const fallbackElement = imgElement.previousElementSibling as HTMLElement;
+                                  if (imgElement && fallbackElement) {
+                                    imgElement.style.display = 'none';
+                                    fallbackElement.style.display = 'flex';
+                                  }
+                                }}
+                              />
+                            )}
+                          </div>
+                          <div>
+                            <h3 className="text-xl font-semibold text-gray-900">{token.name}</h3>
+                            <p className="text-gray-500">{token.symbol}</p>
+                          </div>
+                        </div>
+                        
+                        <div className="mb-4">
+                          <div className="flex justify-between mb-1">
+                            <span className="text-sm text-gray-500">Supply</span>
+                            <span className="text-sm font-medium">{token.supply}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-sm text-gray-500">Denom</span>
+                            <span className="text-sm font-medium truncate max-w-[200px]">{token.denom}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-sm text-gray-500">Created</span>
+                            <span className="text-sm font-medium">{new Date(token.createdAt).toLocaleDateString()}</span>
+                          </div>
+                        </div>
+                        
+                        <div className="border-t border-gray-200 pt-4 mt-4">
+                          <button
+                           onClick={() => addTokenToMarket(token)}
+                           disabled={loading}
+                           className={`w-full py-3 rounded-lg text-white font-medium ${
+                             loading
+                               ? 'bg-gray-400 cursor-not-allowed'
+                               : 'bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700'
+                           }`}
+                         >
+                            {loading ? (
+                              <>
+                                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                </svg>
+                                Processing...
+                              </>
+                            ) : (
+                              <>create a Market</>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>

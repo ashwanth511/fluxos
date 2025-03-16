@@ -7,7 +7,7 @@ import cors from 'cors';
 import { connectToDatabase } from './db/index.js';
 import TokenModel from './models/TokenModel.js';
 import AgentModel from './models/AgentModel.js';
-import { createTokenWithAgent, getAllTokens, getTokenByDenom, getTokenById } from './api/tokenService.js';
+import { createTokenWithAgent, getAllTokens, getTokenByDenom, getTokenById, getTokensByCreator } from './api/tokenService.js';
 import multer from 'multer';
 import { uploadToIPFS } from './ipfs.js';
 import { chatWithAgent } from './ai/index.js';
@@ -51,6 +51,17 @@ app.get('/api/tokens/id/:id', async (req, res) => {
   } catch (error) {
     console.error('Error fetching token by ID:', error);
     res.status(500).json({ error: 'Failed to fetch token' });
+  }
+});
+
+// Get tokens by creator address
+app.get('/api/tokens/creator/:address', async (req, res) => {
+  try {
+    const tokens = await getTokensByCreator(req.params.address);
+    res.json(tokens);
+  } catch (error) {
+    console.error('Error fetching tokens by creator:', error);
+    res.status(500).json({ error: 'Failed to fetch tokens' });
   }
 });
 
