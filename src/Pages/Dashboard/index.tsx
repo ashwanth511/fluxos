@@ -3,12 +3,12 @@
 import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Bot, Send } from "lucide-react"
+import { Bot, Send, Copy, Check } from "lucide-react"
 import DockIcons from "@/components/DockIcons"
 import WalletConnect from "@/components/WalletConnect"
 import agentimg from "@/assets/hero13.png"
 import { AgentService, Message, TokenDenom, ValidatorInfo } from "@/services/agentService"
-
+ 
 const styles = `
   @keyframes wave {
     0% { transform: translateY(0) scale(1) rotate(0deg); }
@@ -81,6 +81,9 @@ export default function DashboardPage() {
   const [showValidators, setShowValidators] = useState(false)
   const [tokens, setTokens] = useState<TokenDenom[]>([])
   const [showTokens, setShowTokens] = useState(false)
+  const [tokenPage, setTokenPage] = useState(1)
+  const [tokenNetwork, setTokenNetwork] = useState("mainnet")
+  const [copiedDenom, setCopiedDenom] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const agentService = useRef<AgentService | null>(null)
 
@@ -89,6 +92,13 @@ export default function DashboardPage() {
       agentService.current = new AgentService()
     }
   }, [])
+
+  // Function to copy text to clipboard
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedDenom(text);
+    setTimeout(() => setCopiedDenom(null), 2000);
+  };
 
   const handleBuyINJ = async (amount: string = "20", skipUserMessage = false, isTokenAmount = false) => {
     if (!address) {
@@ -205,7 +215,7 @@ export default function DashboardPage() {
     setIsLoading(false);
   };
 
-  const handleGetAllTokens = async (skipUserMessage = false) => {
+  const handleGetAllTokens = async (skipUserMessage = false, useTestnet = false) => {
     if (!agentService.current) {
       setMessages(prev => [...prev, 
         { role: 'assistant', content: "Service is initializing. Please try again in a moment." }
@@ -217,26 +227,37 @@ export default function DashboardPage() {
     try {
       // Add user message first if not skipped
       if (!skipUserMessage) {
-        setMessages(prev => [...prev, { role: 'user', content: "Show me all tokens on Injective" }]);
+        const networkName = useTestnet ? "testnet" : "mainnet";
+        setMessages(prev => [...prev, { 
+          role: 'user', 
+          content: `Show me all tokens on Injective ${networkName}` 
+        }]);
       }
       
       // Add a loading message
-      setMessages(prev => [...prev, { role: 'assistant', content: "Fetching all tokens on Injective..." }]);
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: `Fetching all tokens on Injective ${useTestnet ? 'testnet' : 'mainnet'}...` 
+      }]);
       
-      const tokenList = await agentService.current.getAllTokenDenoms();
+      // Reset token page when fetching new tokens
+      setTokenPage(1);
+      setTokenNetwork(useTestnet ? "testnet" : "mainnet");
+      
+      // Get tokens with network parameter
+      const tokenList = await agentService.current.getAllTokenDenoms(useTestnet);
       
       // Store tokens in state
       setTokens(tokenList);
       setShowTokens(true);
       
-      // Format token list for display
-      const topTokens = tokenList.slice(0, 5);
-      const tokenMessage = `Here are some popular tokens on Injective:\n\n${topTokens.map(t => `• ${t.symbol}: ${t.name} (${t.denom})`).join('\n')}\n\nTotal tokens available: ${tokenList.length}`;
-      
-      // Replace the loading message with the token list
+      // Replace the loading message with a simple header message
       setMessages(prev => {
         const newMessages = [...prev];
-        newMessages[newMessages.length - 1] = { role: 'assistant', content: tokenMessage };
+        newMessages[newMessages.length - 1] = { 
+          role: 'assistant', 
+          content: `Here are tokens on Injective ${useTestnet ? 'Testnet' : 'Mainnet'} (Page ${tokenPage}/${Math.ceil(tokenList.length / 5)})` 
+        };
         return newMessages;
       });
     } catch (error) {
@@ -245,8 +266,35 @@ export default function DashboardPage() {
         role: 'assistant', 
         content: "I encountered an error while fetching the tokens. Please try again later." 
       }]);
+      setShowTokens(false);
     }
     setIsLoading(false);
+  };
+
+  // Handle token pagination
+  const handleTokenPagination = (direction: 'next' | 'prev') => {
+    if (!agentService.current || tokens.length === 0) return;
+    
+    const pageSize = 5;
+    const totalPages = Math.ceil(tokens.length / pageSize);
+    
+    let newPage = tokenPage;
+    if (direction === 'next' && tokenPage < totalPages) {
+      newPage = tokenPage + 1;
+    } else if (direction === 'prev' && tokenPage > 1) {
+      newPage = tokenPage - 1;
+    } else {
+      return; // No change needed
+    }
+    
+    // Update the page number
+    setTokenPage(newPage);
+    
+    // Add a new message for the page change
+    setMessages(prev => [...prev, { 
+      role: 'assistant', 
+      content: `Here are tokens on Injective ${tokenNetwork === "testnet" ? 'Testnet' : 'Mainnet'} (Page ${newPage}/${totalPages})` 
+    }]);
   };
 
   const handleStakeINJ = async (skipUserMessage = false) => {
@@ -278,21 +326,13 @@ export default function DashboardPage() {
       const validatorList = await agentService.current.getValidators();
       setValidators(validatorList);
       
-      // Show top 3 validators by tokens staked
-      const topValidators = validatorList
-        .sort((a, b) => parseFloat(b.tokens) - parseFloat(a.tokens))
-        .slice(0, 3);
-      
-      const validatorListText = topValidators.map((validator, index) => 
-        `${index + 1}. ${validator.moniker} - Commission: ${validator.commission}, Tokens: ${validator.tokens}`
-      ).join('\n');
-      
-      const response = `Here are the top validators for staking your INJ:\n${validatorListText}\n\nTo stake, please select a validator and specify the amount of INJ you want to stake.`;
-      
-      // Replace the loading message with the validator list
+      // Replace the loading message with a simple message - validators will be shown in UI
       setMessages(prev => {
         const newMessages = [...prev];
-        newMessages[newMessages.length - 1] = { role: 'assistant', content: response };
+        newMessages[newMessages.length - 1] = { 
+          role: 'assistant', 
+          content: "Here are the top validators for staking your INJ. Select one and specify how much INJ you want to stake:" 
+        };
         return newMessages;
       });
       
@@ -325,6 +365,16 @@ export default function DashboardPage() {
 
     setIsLoading(true);
     try {
+      // Validate amount
+      const numAmount = Number(amount);
+      if (isNaN(numAmount) || numAmount <= 0) {
+        setMessages(prev => [...prev, 
+          { role: 'assistant', content: "Please provide a valid amount to stake. For example: 'Stake 1 INJ'" }
+        ]);
+        setIsLoading(false);
+        return;
+      }
+
       // Add user message
       const validator = validators.find(v => v.address === validatorAddress);
       setMessages(prev => [...prev, { 
@@ -335,12 +385,16 @@ export default function DashboardPage() {
       // Add a loading message
       setMessages(prev => [...prev, { role: 'assistant', content: "Processing staking request..." }]);
       
+      // Call the staking service
       const response = await agentService.current.stakeINJ(amount, address, validatorAddress);
       
       // Replace the loading message with the staking result
       setMessages(prev => {
         const newMessages = [...prev];
-        newMessages[newMessages.length - 1] = { role: 'assistant', content: response };
+        newMessages[newMessages.length - 1] = { 
+          role: 'assistant', 
+          content: response 
+        };
         return newMessages;
       });
       
@@ -506,7 +560,37 @@ export default function DashboardPage() {
       return;
     }
 
-    // Check for staking commands
+    // Check for staking commands with amount and validator
+    const stakeMatch = messageText.toLowerCase().match(/stake\s+(\d+(?:\.\d+)?)\s+inj(?:\s+(?:to|on|with)\s+(.+))?/i);
+    if (stakeMatch) {
+      const amount = stakeMatch[1];
+      const validatorName = stakeMatch[2];
+      
+      if (!showValidators) {
+        // First fetch validators
+        await handleStakeINJ(true);
+      }
+      
+      if (validatorName) {
+        // Find validator by name
+        const validator = validators.find(v => 
+          v.moniker.toLowerCase().includes(validatorName.toLowerCase()));
+        
+        if (validator) {
+          await handleStakeToValidator(validator.address, amount);
+        } else {
+          setMessages(prev => [...prev, { 
+            role: 'assistant', 
+            content: `Could not find validator "${validatorName}". Please select from the list below:` 
+          }]);
+        }
+      }
+      
+      setIsLoading(false);
+      return;
+    }
+    
+    // Check for general staking commands
     if (messageText.toLowerCase().includes('stake') && 
         messageText.toLowerCase().includes('inj')) {
       await handleStakeINJ(true);
@@ -518,9 +602,25 @@ export default function DashboardPage() {
     if (messageText.toLowerCase().includes('token') || 
         messageText.toLowerCase().includes('all tokens') || 
         messageText.toLowerCase().includes('denoms')) {
-      await handleGetAllTokens(true);
+      // Check if specifically asking for testnet tokens
+      const useTestnet = messageText.toLowerCase().includes('testnet');
+      await handleGetAllTokens(true, useTestnet);
       setIsLoading(false);
       return;
+    }
+    
+    // Check for pagination commands
+    if (showTokens && tokens.length > 0) {
+      if (messageText.toLowerCase().includes('next page')) {
+        handleTokenPagination('next');
+        setIsLoading(false);
+        return;
+      }
+      if (messageText.toLowerCase().includes('previous page') || messageText.toLowerCase().includes('prev page')) {
+        handleTokenPagination('prev');
+        setIsLoading(false);
+        return;
+      }
     }
 
     // Check for price commands
@@ -559,6 +659,149 @@ export default function DashboardPage() {
     setIsLoading(false)
   }
 
+  // Function to render token cards in the chat
+  const renderTokenCards = () => {
+    if (!showTokens || tokens.length === 0) return null;
+    
+    const pageSize = 5;
+    const startIndex = (tokenPage - 1) * pageSize;
+    const endIndex = Math.min(startIndex + pageSize, tokens.length);
+    const tokensToDisplay = tokens.slice(startIndex, endIndex);
+    const totalPages = Math.ceil(tokens.length / pageSize);
+    
+    return (
+      <div className="mt-4 mb-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+          {tokensToDisplay.map((token) => (
+            <div 
+              key={token.denom} 
+              className="bg-white p-3 rounded-lg shadow-sm border border-gray-100 relative"
+            >
+              {token.logoUrl && (
+                <div className="absolute top-3 right-3 w-8 h-8">
+                  <img 
+                    src={token.logoUrl} 
+                    alt={token.symbol} 
+                    className="w-full h-full object-contain rounded-full"
+                  />
+                </div>
+              )}
+              <div className="font-medium text-black">{token.symbol}</div>
+              <div className="text-xs text-gray-500">{token.name}</div>
+              <div className="text-xs text-gray-400 flex items-center mt-1">
+                <div className="truncate mr-2" title={token.denom}>
+                  {token.denom.length > 20 ? `${token.denom.substring(0, 20)}...` : token.denom}
+                </div>
+                <button 
+                  onClick={() => copyToClipboard(token.denom)}
+                  className="text-gray-500 hover:text-black"
+                >
+                  {copiedDenom === token.denom ? <Check size={14} /> : <Copy size={14} />}
+                </button>
+              </div>
+              <div className="text-xs text-gray-400 mt-1">
+                <span className="bg-gray-100 px-2 py-1 rounded text-xs">
+                  {token.network}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+        
+        {/* Pagination controls */}
+        {tokens.length > pageSize && (
+          <div className="flex justify-between items-center mt-4">
+            <Button 
+              variant="outline" 
+              size="sm"
+              disabled={tokenPage === 1}
+              onClick={() => handleTokenPagination('prev')}
+            >
+              Previous
+            </Button>
+            
+            <span className="text-sm text-gray-500">
+              Page {tokenPage} of {totalPages}
+            </span>
+            
+            <Button 
+              variant="outline" 
+              size="sm"
+              disabled={tokenPage >= totalPages}
+              onClick={() => handleTokenPagination('next')}
+            >
+              Next
+            </Button>
+          </div>
+        )}
+        
+        {/* Network toggle */}
+        <div className="flex justify-center mt-4">
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={() => handleGetAllTokens(false, tokenNetwork === "mainnet")}
+            className="text-xs"
+          >
+            Switch to {tokenNetwork === "mainnet" ? "Testnet" : "Mainnet"} Tokens
+          </Button>
+        </div>
+      </div>
+    );
+  };
+
+  // Function to render validator cards
+  const renderValidatorCards = () => {
+    if (!showValidators || validators.length === 0) return null;
+    
+    return (
+      <div className="mt-4 mb-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {validators.slice(0, 6).map((validator) => (
+            <div 
+              key={validator.address} 
+              className="bg-white p-4 rounded-lg shadow-sm border border-gray-100 flex items-center cursor-pointer hover:bg-gray-50"
+              onClick={() => {
+                // Prompt for amount when validator is clicked
+                const amount = prompt(`How much INJ do you want to stake with ${validator.moniker}?`, "1");
+                if (amount) {
+                  handleStakeToValidator(validator.address, amount);
+                }
+              }}
+            >
+              <div className="w-10 h-10 mr-3">
+                <img 
+                  src={validator.imageUrl || 'https://raw.githubusercontent.com/cosmos/chain-registry/master/injective/images/inj.png'} 
+                  alt={validator.moniker} 
+                  className="w-full h-full object-contain rounded-full"
+                />
+              </div>
+              <div className="flex-1">
+                <div className="font-medium">{validator.moniker}</div>
+                <div className="text-xs text-gray-500">Commission: {validator.commission}</div>
+                <div className="text-xs text-gray-500">Tokens: {validator.tokens}</div>
+                <div className="text-xs text-gray-400 flex items-center mt-1">
+                  <div className="truncate mr-2" title={validator.address}>
+                    {validator.address.substring(0, 10)}...
+                  </div>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      copyToClipboard(validator.address);
+                    }}
+                    className="text-gray-500 hover:text-black"
+                  >
+                    {copiedDenom === validator.address ? <Check size={14} /> : <Copy size={14} />}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       <WalletConnect setAddress={setAddress}/>
@@ -583,64 +826,38 @@ export default function DashboardPage() {
           </div>
 
           <div className="mb-8 space-y-4 max-h-[400px] overflow-y-auto">
-            {messages.map((message, i) => (
-              <div key={i} className={`flex ${message.role === 'assistant' ? 'justify-start' : 'justify-end'}`}>
-                <div className={`max-w-[80%] p-4 rounded-xl ${
-                  message.role === 'assistant' 
-                    ? 'bg-white text-gray-800 shadow-sm' 
-                    : 'bg-black text-white'
-                }`}>
-                  {message.content}
+            {messages.map((message, i) => {
+              // Check if this is a token display message
+              const isTokenDisplayMessage = 
+                message.role === 'assistant' && 
+                message.content.includes('tokens on Injective') && 
+                message.content.includes('Page');
+              
+              return (
+                <div key={i} className={`flex ${message.role === 'assistant' ? 'justify-start' : 'justify-end'}`}>
+                  <div className={`max-w-[80%] p-4 rounded-xl ${
+                    message.role === 'assistant' 
+                      ? 'bg-white text-gray-800 shadow-sm' 
+                      : 'bg-black text-white'
+                  }`}>
+                    {/* For token display messages, only show the header */}
+                    {isTokenDisplayMessage ? (
+                      <div>
+                        {message.content}
+                        {i === messages.length - 1 && showTokens && renderTokenCards()}
+                      </div>
+                    ) : (
+                      <div>
+                        {message.content}
+                        {message.role === 'assistant' && i === messages.length - 1 && showValidators && renderValidatorCards()}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
             <div ref={messagesEndRef} />
           </div>
-
-          {/* Show validators for staking if needed */}
-          {showValidators && validators.length > 0 && (
-            <div className="mb-8">
-              <div className="text-sm text-gray-600 mb-4">Select a validator to stake with:</div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                {validators.slice(0, 4).map((validator) => (
-                  <Button 
-                    key={validator.address} 
-                    variant="outline" 
-                    size="sm" 
-                    className="text-left"
-                    onClick={() => handleStakeToValidator(validator.address)}
-                  >
-                    <div>
-                      <div className="font-medium">{validator.moniker}</div>
-                      <div className="text-xs text-gray-500">Commission: {validator.commission}, Tokens: {validator.tokens}</div>
-                    </div>
-                  </Button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Show tokens if needed */}
-          {showTokens && tokens.length > 0 && (
-            <div className="mb-8">
-              <div className="text-sm text-gray-600 mb-4">Here are some tokens available on Injective:</div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                {tokens.slice(0, 4).map((token) => (
-                  <Button 
-                    key={token.denom} 
-                    variant="outline" 
-                    size="sm" 
-                    className="text-left"
-                  >
-                    <div>
-                      <div className="font-medium">{token.symbol}</div>
-                      <div className="text-xs text-gray-500">{token.name}</div>
-                    </div>
-                  </Button>
-                ))}
-              </div>
-            </div>
-          )}
 
           <div className="mb-8">
             <div className="text-sm text-gray-600 mb-4">Quick Actions:</div>
@@ -682,22 +899,22 @@ export default function DashboardPage() {
                 INJ Price
               </Button>
               <Button 
-                key="all-tokens" 
+                key="mainnet-tokens" 
                 variant="outline" 
                 size="sm" 
                 className="rounded-full"
-                onClick={() => handleGetAllTokens()}
+                onClick={() => handleGetAllTokens(false, false)}
               >
-                All Tokens
+                Mainnet Tokens
               </Button>
               <Button 
-                key="cosmos-prices" 
+                key="testnet-tokens" 
                 variant="outline" 
                 size="sm" 
                 className="rounded-full"
-                onClick={() => handleGetCosmosEcosystemPrices()}
+                onClick={() => handleGetAllTokens(false, true)}
               >
-                Cosmos Prices
+                Testnet Tokens
               </Button>
             </div>
           </div>

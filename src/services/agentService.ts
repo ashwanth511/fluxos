@@ -1,11 +1,35 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { loadMoonPay } from '@moonpay/moonpay-js';
 import { Network, getNetworkEndpoints } from '@injectivelabs/networks';
 import { 
   ChainGrpcBankApi, 
   ChainGrpcStakingApi, 
-  IndexerGrpcOracleApi
+  IndexerGrpcOracleApi,
+  MsgDelegate
 } from '@injectivelabs/sdk-ts';
+import { MsgBroadcaster, WalletStrategy, Wallet } from "@injectivelabs/wallet-ts";
+import { ChainId } from '@injectivelabs/ts-types'
+import { BigNumberInBase } from '@injectivelabs/utils'
+
+// Add Keplr type definition
+declare global {
+  interface Window {
+    keplr: {
+      enable: (chainId: string) => Promise<void>;
+      getOfflineSigner: (chainId: string) => any;
+      getOfflineSignerAuto: (chainId: string) => any;
+      signDirect: (chainId: string, signerAddress: string, signDoc: any) => Promise<any>;
+      experimentalSuggestChain: (chainInfo: any) => Promise<void>;
+      signAmino: (chainId: string, signer: string, signDoc: any) => Promise<any>;
+      getKey: (chainId: string) => Promise<{
+        name: string;
+        algo: string;
+        pubKey: Uint8Array;
+        address: Uint8Array;
+        bech32Address: string;
+      }>;
+    };
+  }
+}
 
 export interface Message {
   role: 'user' | 'assistant';
@@ -18,6 +42,7 @@ export interface TokenDenom {
   symbol: string;
   decimals: number;
   logoUrl?: string;
+  network?: string; // Added network field to track which network the token is from
 }
 
 export interface ValidatorInfo {
@@ -26,6 +51,7 @@ export interface ValidatorInfo {
   commission: string;
   tokens: string;
   status: string;
+  imageUrl?: string;
 }
 
 export class AgentService {
@@ -35,18 +61,28 @@ export class AgentService {
   private stakingApi: ChainGrpcStakingApi;
   private oracleApi: IndexerGrpcOracleApi;
   private network: Network;
+  
+  // Add mainnet APIs for token fetching
+  private mainnetBankApi: ChainGrpcBankApi;
+  private mainnetStakingApi: ChainGrpcStakingApi;
+  msgBroadcaster: any;
 
   constructor() {
     const apiKey = import.meta.env.VITE_GOOGLE_API_KEY;
     const genAI = new GoogleGenerativeAI(apiKey);
     this.model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
 
-    // Initialize Injective SDK
+    // Initialize Injective SDK for testnet
     this.network = Network.Testnet;
     const endpoints = getNetworkEndpoints(this.network);
     this.bankApi = new ChainGrpcBankApi(endpoints.grpc);
     this.stakingApi = new ChainGrpcStakingApi(endpoints.grpc);
     this.oracleApi = new IndexerGrpcOracleApi(endpoints.indexer);
+    
+    // Initialize mainnet API for token fetching
+    const mainnetEndpoints = getNetworkEndpoints(Network.Mainnet);
+    this.mainnetBankApi = new ChainGrpcBankApi(mainnetEndpoints.grpc);
+    this.mainnetStakingApi = new ChainGrpcStakingApi(mainnetEndpoints.grpc);
 
     this.chat = this.model.startChat({
       history: [
@@ -199,13 +235,60 @@ export class AgentService {
   }
 
   /**
-   * NEW FEATURE 1: Get all token denoms from the Injective chain
+   * Get all token denoms from the Injective chain
+   * @param useTestnet - Whether to fetch tokens from testnet (default: false, uses mainnet)
    * @returns Promise with array of token denoms
    */
-  async getAllTokenDenoms(): Promise<TokenDenom[]> {
+  async getAllTokenDenoms(useTestnet: boolean = false): Promise<TokenDenom[]> {
     try {
-      // Fetch denoms metadata
-      const { metadatas } = await this.bankApi.fetchDenomsMetadata();
+      // Determine which network to use
+      const network = useTestnet ? Network.Testnet : Network.Mainnet;
+      const networkName = useTestnet ? "Testnet" : "Mainnet";
+      
+      // Try Injective's LCD API first
+      try {
+        const baseUrl = useTestnet 
+          ? 'https://testnet.sentry.lcd.injective.network' 
+          : 'https://sentry.lcd.injective.network';
+        
+        const response = await fetch(`${baseUrl}/cosmos/bank/v1beta1/denoms_metadata`);
+        const data = await response.json();
+        
+        if (data && data.metadatas) {
+          // Define popular/trending tokens to prioritize
+          const trendingTokens = ['inj', 'peggy0xdAC17F958D2ee523a2206206994597C13D831ec7', 'factory/inj17vytdwqczqz72j65saukplrktd4gyfme5agf6c/atom'];
+          
+          // Map to TokenDenom interface
+          let tokens: TokenDenom[] = data.metadatas.map((metadata: any) => ({
+            denom: metadata.base,
+            name: metadata.name || metadata.base,
+            symbol: metadata.symbol || metadata.base.split('/').pop() || metadata.base,
+            decimals: metadata.denom_units?.[metadata.denom_units.length-1]?.exponent || 0,
+            logoUrl: this.getTokenLogoUrl(metadata.symbol || metadata.base.split('/').pop() || metadata.base),
+            network: networkName
+          }));
+          
+          // Sort tokens to show trending ones first
+          tokens = tokens.sort((a, b) => {
+            const aIsTrending = trendingTokens.includes(a.denom);
+            const bIsTrending = trendingTokens.includes(b.denom);
+            
+            if (aIsTrending && !bIsTrending) return -1;
+            if (!aIsTrending && bIsTrending) return 1;
+            
+            // Secondary sort by symbol
+            return a.symbol.localeCompare(b.symbol);
+          });
+          
+          return tokens;
+        }
+      } catch (lcdError) {
+        console.error('LCD API Error:', lcdError);
+      }
+      
+      // Fallback to SDK method
+      const bankApi = useTestnet ? this.bankApi : this.mainnetBankApi;
+      const { metadatas } = await bankApi.fetchDenomsMetadata();
       
       // Define popular/trending tokens to prioritize
       const trendingTokens = ['inj', 'peggy0xdAC17F958D2ee523a2206206994597C13D831ec7', 'factory/inj17vytdwqczqz72j65saukplrktd4gyfme5agf6c/atom'];
@@ -216,11 +299,12 @@ export class AgentService {
         name: metadata.name || metadata.base,
         symbol: metadata.symbol || metadata.base.split('/').pop() || metadata.base,
         decimals: metadata.denomUnits?.[metadata.denomUnits.length-1]?.exponent || 0,
-        logoUrl: metadata.uri || ''
+        logoUrl: this.getTokenLogoUrl(metadata.symbol || metadata.base.split('/').pop() || metadata.base),
+        network: networkName
       }));
       
       // Fetch total supply to get any tokens that might not have metadata
-      const { supply } = await this.bankApi.fetchAllTotalSupply();
+      const { supply } = await bankApi.fetchAllTotalSupply();
       
       // Add tokens from supply that might not have metadata
       for (const coin of supply) {
@@ -236,7 +320,9 @@ export class AgentService {
           denom: coin.denom,
           name: symbol,
           symbol: symbol,
-          decimals: 0
+          decimals: 0,
+          logoUrl: this.getTokenLogoUrl(symbol),
+          network: networkName
         });
       }
       
@@ -263,21 +349,105 @@ export class AgentService {
           name: 'Injective',
           symbol: 'INJ',
           decimals: 18,
-          logoUrl: 'https://static.alchemyapi.io/images/assets/7226.png'
+          logoUrl: 'https://raw.githubusercontent.com/cosmos/chain-registry/master/injective/images/inj.png',
+          network: useTestnet ? "Testnet" : "Mainnet"
         },
         {
           denom: 'peggy0xdAC17F958D2ee523a2206206994597C13D831ec7',
           name: 'Tether USD',
           symbol: 'USDT',
           decimals: 6,
-          logoUrl: 'https://static.alchemyapi.io/images/assets/825.png'
+          logoUrl: 'https://raw.githubusercontent.com/cosmos/chain-registry/master/injective/images/usdt.png',
+          network: useTestnet ? "Testnet" : "Mainnet"
         }
       ];
     }
   }
 
   /**
-   * NEW FEATURE 2: Stake INJ tokens to a validator
+   * Get token logo URL based on symbol
+   */
+  private getTokenLogoUrl(symbol: string): string {
+    const normalizedSymbol = symbol.toLowerCase();
+    
+    // Common tokens with known logos
+    const tokenLogos: Record<string, string> = {
+      'inj': 'https://raw.githubusercontent.com/cosmos/chain-registry/master/injective/images/inj.png',
+      'usdt': 'https://raw.githubusercontent.com/cosmos/chain-registry/master/injective/images/usdt.png',
+      'usdc': 'https://raw.githubusercontent.com/cosmos/chain-registry/master/injective/images/usdc.png',
+      'atom': 'https://raw.githubusercontent.com/cosmos/chain-registry/master/cosmoshub/images/atom.png',
+      'osmo': 'https://raw.githubusercontent.com/cosmos/chain-registry/master/osmosis/images/osmo.png',
+      'juno': 'https://raw.githubusercontent.com/cosmos/chain-registry/master/juno/images/juno.png',
+      'evmos': 'https://raw.githubusercontent.com/cosmos/chain-registry/master/evmos/images/evmos.png',
+      'luna': 'https://raw.githubusercontent.com/cosmos/chain-registry/master/terra2/images/luna.png',
+      'scrt': 'https://raw.githubusercontent.com/cosmos/chain-registry/master/secretnetwork/images/scrt.png',
+      'akt': 'https://raw.githubusercontent.com/cosmos/chain-registry/master/akash/images/akt.png',
+      'stars': 'https://raw.githubusercontent.com/cosmos/chain-registry/master/stargaze/images/stars.png',
+      'weth': 'https://raw.githubusercontent.com/cosmos/chain-registry/master/ethereum/images/eth.png',
+      'wbtc': 'https://raw.githubusercontent.com/cosmos/chain-registry/master/injective/images/wbtc.png'
+    };
+    
+    // Try to match the symbol to a known token
+    for (const [key, url] of Object.entries(tokenLogos)) {
+      if (normalizedSymbol.includes(key)) {
+        return url;
+      }
+    }
+    
+    // Default placeholder for unknown tokens
+    return 'https://raw.githubusercontent.com/cosmos/chain-registry/master/injective/images/inj.png';
+  }
+
+  /**
+   * Format token list for display in chat
+   * This is now only used for fallback when cards can't be displayed
+   * @param tokens List of tokens to format
+   * @param page Page number (1-based)
+   * @param pageSize Number of tokens per page
+   * @returns Formatted string with token information
+   */
+  formatTokensForDisplay(tokens: TokenDenom[], page: number = 1, pageSize: number = 5): string {
+    if (!tokens || tokens.length === 0) {
+      return "No tokens found.";
+    }
+    
+    const startIndex = (page - 1) * pageSize;
+    const endIndex = Math.min(startIndex + pageSize, tokens.length);
+    const totalPages = Math.ceil(tokens.length / pageSize);
+    
+    if (startIndex >= tokens.length) {
+      return `Invalid page number. Total pages: ${totalPages}`;
+    }
+    
+    const tokensToDisplay = tokens.slice(startIndex, endIndex);
+    const network = tokensToDisplay[0]?.network || "Unknown";
+    
+    let result = `**Tokens on ${network} (Page ${page}/${totalPages})**\n\n`;
+    
+    tokensToDisplay.forEach((token, index) => {
+      result += `**${index + 1 + startIndex}. ${token.symbol}**\n`;
+      result += `Name: ${token.name}\n`;
+      result += `Denom: \`${token.denom}\`\n`;
+      result += `Decimals: ${token.decimals}\n`;
+      if (index < tokensToDisplay.length - 1) {
+        result += `\n`;
+      }
+    });
+    
+    result += `\nShowing ${startIndex + 1}-${endIndex} of ${tokens.length} tokens. `;
+    
+    if (page < totalPages) {
+      result += `Type "next page" to see more tokens.`;
+    }
+    if (page > 1) {
+      result += `${page < totalPages ? ' Or type' : 'Type'} "previous page" to see previous tokens.`;
+    }
+    
+    return result;
+  }
+
+  /**
+   * Stake INJ tokens to a validator using Keplr wallet
    * @param amount - Amount of INJ to stake
    * @param walletAddress - User's wallet address
    * @param validatorAddress - Address of the validator to stake to
@@ -295,28 +465,122 @@ export class AgentService {
         return "Please provide a valid amount to stake.";
       }
 
+      // Determine which network we're using
+      const isTestnet = this.network === Network.Testnet;
+      console.log(`Staking on ${isTestnet ? 'testnet' : 'mainnet'}`);
+
       // Check if validatorAddress is a moniker instead of an address
+      if (!validatorAddress || validatorAddress.trim() === '') {
+        return "Please provide a validator address or name to stake with.";
+      }
+
       if (!validatorAddress.startsWith('injvaloper')) {
+        console.log(`Looking for validator with moniker: ${validatorAddress}`);
         // Try to find the validator by moniker
         const validators = await this.getValidators();
+        console.log(`Found ${validators.length} validators to search through`);
+        
         const validator = validators.find(v => 
           v.moniker.toLowerCase() === validatorAddress.toLowerCase());
         
         if (validator) {
+          console.log(`Found validator: ${validator.moniker} with address ${validator.address}`);
           validatorAddress = validator.address;
         } else {
-          return `Could not find validator with name "${validatorAddress}". Please provide a valid validator name or address.`;
+          return `Could not find validator with name "${validatorAddress}" on ${isTestnet ? 'testnet' : 'mainnet'}. Please provide a valid validator name or address.`;
+        }
+      } else {
+        // Verify the validator exists on the current network
+        console.log(`Verifying validator address: ${validatorAddress}`);
+        const validators = await this.getValidators();
+        const validatorExists = validators.some(v => v.address === validatorAddress);
+        
+        if (!validatorExists) {
+          return `Validator with address ${validatorAddress} does not exist on ${isTestnet ? 'testnet' : 'mainnet'}. Please provide a valid validator address for the current network.`;
         }
       }
 
-      // Open explorer to the staking page
-      const stakingUrl = `https://testnet.explorer.injective.network/validators/${validatorAddress}?action=delegate`;
-      window.open(stakingUrl, "_blank");
-      
-      return `Opening Injective Explorer to stake ${amount} INJ to validator ${validatorAddress.slice(0,10)}... Please complete the transaction in the explorer.`;
+      // Check if Keplr is available
+      if (typeof window.keplr === 'undefined') {
+        return "Keplr wallet extension is not installed. Please install Keplr to stake INJ.";
+      }
+
+      try {
+        const chainIdValue = this.network === Network.Mainnet ? "injective-1" : "injective-888";
+        const chainIdEnum = this.network === Network.Mainnet ? ChainId.Mainnet : ChainId.Testnet;
+        
+        // Request Keplr to enable the chain
+        await window.keplr.enable(chainIdValue);
+        
+        // Get the user's address from Keplr directly
+        const key = await window.keplr.getKey(chainIdValue);
+        const userAddress = key.bech32Address;
+        console.log("Got address from Keplr:", userAddress);
+        
+        // Create the delegation message
+        const amountInBase = new BigNumberInBase(amount);
+        const denom = 'inj';
+        
+        // Create the delegation message
+        const msg = MsgDelegate.fromJSON({
+          injectiveAddress: userAddress,
+          validatorAddress,
+          amount: {
+            denom,
+            amount: amountInBase.toWei().toFixed(),
+          },
+        });
+        
+        // Create a wallet strategy with Keplr
+        const walletStrategy = new WalletStrategy({
+          chainId: chainIdEnum,
+          wallet: Wallet.Keplr
+        });
+        
+        // Create a message broadcaster
+        const msgBroadcaster = new MsgBroadcaster({
+          walletStrategy,
+          network: this.network
+        });
+        
+        // Broadcast the transaction
+        const response = await msgBroadcaster.broadcast({
+          msgs: [msg],
+          injectiveAddress: userAddress
+        });
+        
+        console.log("Staking transaction response:", response);
+        
+        return `Successfully staked ${amount} INJ to validator ${validatorAddress.slice(0,10)}... Transaction hash: ${response.txHash}`;
+      } catch (keplrError: any) {
+        console.error('Keplr Error:', keplrError);
+        
+        // Provide more detailed error information and troubleshooting steps
+        let errorMessage = `Error with Keplr wallet: ${keplrError?.message || 'Unknown error'}.`;
+        
+        // Add troubleshooting suggestions based on common errors
+        if (keplrError?.message?.includes('not a function')) {
+          errorMessage += " This may be due to an outdated Keplr version. Please update your Keplr extension to the latest version.";
+        } else if (keplrError?.message?.includes('Request rejected')) {
+          errorMessage += " You rejected the request. Please try again and approve the connection.";
+        } else if (keplrError?.message?.includes('account')) {
+          errorMessage += " Please make sure you have an Injective account in your Keplr wallet.";
+        } else if (keplrError?.message?.includes('validator does not exist')) {
+          errorMessage += ` The validator you selected does not exist on the ${isTestnet ? 'testnet' : 'mainnet'} network. Please choose a different validator.`;
+        }
+        
+        // Add general troubleshooting steps
+        errorMessage += "\n\nTroubleshooting steps:\n" +
+          "1. Make sure Keplr extension is up to date\n" +
+          "2. Try refreshing the page\n" +
+          "3. Disable other wallet extensions temporarily\n" +
+          "4. Clear browser cache and cookies";
+        
+        return errorMessage;
+      }
     } catch (error) {
       console.error('Error staking INJ:', error);
-      return "Error processing your staking request. Please try again or visit https://testnet.explorer.injective.network/validators manually.";
+      return "Error processing your staking request. Please try again.";
     }
   }
 
@@ -326,7 +590,43 @@ export class AgentService {
    */
   async getValidators(): Promise<ValidatorInfo[]> {
     try {
-      const { validators } = await this.stakingApi.fetchValidators();
+      // Determine which network to use
+      const isTestnet = this.network === Network.Testnet;
+      const apiUrl = isTestnet 
+        ? 'https://testnet.sentry.lcd.injective.network/cosmos/staking/v1beta1/validators?status=BOND_STATUS_BONDED&pagination.limit=100'
+        : 'https://sentry.lcd.injective.network/cosmos/staking/v1beta1/validators?status=BOND_STATUS_BONDED&pagination.limit=100';
+      
+      console.log(`Fetching validators from ${isTestnet ? 'testnet' : 'mainnet'}`);
+      
+      // Use the Injective API to fetch validators
+      const response = await fetch(apiUrl);
+      const data = await response.json();
+      
+      if (data && data.validators) {
+        // Map the validators to our format
+        const activeValidators = data.validators
+          .filter((validator: any) => validator.status === 'BOND_STATUS_BONDED')
+          .sort((a: any, b: any) => parseFloat(b.tokens) - parseFloat(a.tokens))
+          .map((validator: any) => ({
+            address: validator.operator_address,
+            moniker: validator.description?.moniker || 'Unknown',
+            commission: (parseFloat(validator.commission?.commission_rates?.rate || '0') * 100).toFixed(2) + '%',
+            tokens: (parseFloat(validator.tokens) / 10**18).toFixed(2) + ' INJ',
+            status: 'Active',
+            imageUrl: this.getValidatorImageUrl(validator.description?.moniker || '')
+          }));
+        
+        console.log(`Found ${activeValidators.length} active validators on ${isTestnet ? 'testnet' : 'mainnet'}`);
+        
+        // Return top 10 validators for better UX
+        return activeValidators.slice(0, 10);
+      }
+      
+      // Fallback to SDK if the API fails
+      const stakingApi = isTestnet ? this.stakingApi : this.mainnetStakingApi;
+      console.log(`Falling back to SDK for ${isTestnet ? 'testnet' : 'mainnet'} validators`);
+      
+      const { validators } = await stakingApi.fetchValidators();
       
       // Filter to only active validators and sort by tokens
       const activeValidators = validators
@@ -337,114 +637,200 @@ export class AgentService {
           moniker: validator.description?.moniker || 'Unknown',
           commission: (parseFloat(validator.commission?.commissionRates?.rate || '0') * 100).toFixed(2) + '%',
           tokens: (parseFloat(validator.tokens) / 10**18).toFixed(2) + ' INJ',
-          status: 'Active'
+          status: 'Active',
+          imageUrl: this.getValidatorImageUrl(validator.description?.moniker || '')
         }));
-      
-      // Return top 10 validators for better UX
-      return activeValidators.slice(0, 10);
+        
+        // Return top 10 validators for better UX
+        return activeValidators.slice(0, 10);
     } catch (error) {
       console.error('Error fetching validators:', error);
       
-      // Return fallback validators if API fails
+      // Try direct API call as last resort
+      try {
+        const response = await fetch('https://sentry.lcd.injective.network/cosmos/staking/v1beta1/validators?status=BOND_STATUS_BONDED&pagination.limit=10');
+        const data = await response.json();
+        
+        if (data && data.validators) {
+          return data.validators.map((v: any) => ({
+            address: v.operator_address,
+            moniker: v.description?.moniker || 'Unknown',
+            commission: (parseFloat(v.commission?.commission_rates?.rate || '0') * 100).toFixed(2) + '%',
+            tokens: (parseFloat(v.tokens) / 10**18).toFixed(2) + ' INJ',
+            status: 'Active',
+            imageUrl: this.getValidatorImageUrl(v.description?.moniker || '')
+          }));
+        }
+      } catch (apiError) {
+        console.error('API Error:', apiError);
+      }
+      
+      // Return fallback validators if all methods fail
       return [
         {
           address: 'injvaloper1ypvzalcm74ycj6tr4rhhlxkwxlz3t59yff8jdz',
           moniker: 'Injective Foundation',
           commission: '0.00%',
           tokens: '1000000.00 INJ',
-          status: 'Active'
+          status: 'Active',
+          imageUrl: 'https://raw.githubusercontent.com/cosmos/chain-registry/master/injective/images/inj.png'
         },
         {
           address: 'injvaloper1ultw9r29l8nxy5u6thcgusjn95vsy2cwr05234',
           moniker: 'Figment',
           commission: '5.00%',
           tokens: '500000.00 INJ',
-          status: 'Active'
+          status: 'Active',
+          imageUrl: 'https://raw.githubusercontent.com/cosmos/chain-registry/master/injective/images/inj.png'
         },
         {
           address: 'injvaloper1qv8yd2d6qvjcm7zcx5j0jqsh6vyt0yk2qvlrr5',
           moniker: 'Binance Staking',
           commission: '10.00%',
           tokens: '450000.00 INJ',
-          status: 'Active'
+          status: 'Active',
+          imageUrl: 'https://raw.githubusercontent.com/cosmos/chain-registry/master/injective/images/inj.png'
         }
       ];
     }
   }
 
   /**
-   * NEW FEATURE 3: Get INJ price from oracle
+   * Get validator image URL based on moniker
+   */
+  private getValidatorImageUrl(moniker: string): string {
+    // Common validators with known logos
+    const validatorLogos: Record<string, string> = {
+      'Injective Foundation': 'https://raw.githubusercontent.com/cosmos/chain-registry/master/injective/images/inj.png',
+      'Figment': 'https://raw.githubusercontent.com/cosmos/chain-registry/master/injective/images/figment.png',
+      'Binance Staking': 'https://raw.githubusercontent.com/cosmos/chain-registry/master/injective/images/binance.png',
+      'Cosmostation': 'https://raw.githubusercontent.com/cosmos/chain-registry/master/injective/images/cosmostation.png',
+      'Staking Fund': 'https://raw.githubusercontent.com/cosmos/chain-registry/master/injective/images/stakingfund.png'
+    };
+    
+    // Try to match the moniker to a known validator
+    if (validatorLogos[moniker]) {
+      return validatorLogos[moniker];
+    }
+    
+    // Default placeholder for unknown validators
+    return 'https://raw.githubusercontent.com/cosmos/chain-registry/master/injective/images/inj.png';
+  }
+
+  /**
+   * Get INJ price from Injective API instead of CoinGecko
    * @returns Promise with INJ price data
    */
   async getINJPrice(): Promise<string> {
     try {
-      // Use CoinGecko API for real-time prices
+      // Try Injective's own price oracle first
       try {
-        const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=injective&vs_currencies=usd&include_24hr_change=true');
+        const response = await fetch('https://sentry.lcd.injective.network/injective/exchange/v1beta1/oracle/price/inj');
         const data = await response.json();
         
-        if (data && data.injective && data.injective.usd) {
-          const price = data.injective.usd;
-          const change = data.injective.usd_24h_change || 0;
-          const changeSymbol = change >= 0 ? '+' : '';
-          
-          return `Current INJ price: $${price.toFixed(4)} USD (${changeSymbol}${change.toFixed(2)}% 24h)`;
+        if (data && data.price) {
+          const price = parseFloat(data.price);
+          return `Current INJ price: $${price.toFixed(4)} USD`;
         }
-      } catch (coingeckoError) {
-        console.error('CoinGecko API Error:', coingeckoError);
+      } catch (injectiveError) {
+        console.error('Injective API Error:', injectiveError);
       }
       
-      // Fallback: Use a hardcoded recent price
-      return "Current INJ price: $18.75 USDT (estimated)";
+      // Try Binance API as a backup
+      try {
+        const response = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=INJUSDT');
+        const data = await response.json();
+        
+        if (data && data.price) {
+          const price = parseFloat(data.price);
+          return `Current INJ price: $${price.toFixed(4)} USD (from Binance)`;
+        }
+      } catch (binanceError) {
+        console.error('Binance API Error:', binanceError);
+      }
+      
+      // Try Kraken API as another backup
+      try {
+        const response = await fetch('https://api.kraken.com/0/public/Ticker?pair=INJUSD');
+        const data = await response.json();
+        
+        if (data && data.result && data.result.INJUSD) {
+          const price = parseFloat(data.result.INJUSD.c[0]);
+          return `Current INJ price: $${price.toFixed(4)} USD (from Kraken)`;
+        }
+      } catch (krakenError) {
+        console.error('Kraken API Error:', krakenError);
+      }
+      
+      // Fallback to a hardcoded recent price
+      return "Current INJ price: $18.75 USD (estimated)";
     } catch (error) {
       console.error('Price Error:', error);
-      return "Current INJ price: $18.75 USDT (estimated)";
+      return "Current INJ price: $18.75 USD (estimated)";
     }
   }
 
   /**
-   * Get price for any Cosmos ecosystem token
+   * Get price for any Cosmos ecosystem token using Osmosis API
    * @param tokenSymbol Symbol of the token to get price for (e.g., 'ATOM', 'OSMO')
    * @returns Promise with token price data
    */
   async getCosmosTokenPrice(tokenSymbol: string): Promise<string> {
     try {
-      // Map of token symbols to CoinGecko IDs
+      // Map of token symbols to Osmosis IDs
       const tokenIdMap: Record<string, string> = {
         'INJ': 'injective',
         'ATOM': 'cosmos',
         'OSMO': 'osmosis',
-        'JUNO': 'juno-network',
+        'JUNO': 'juno',
         'STARS': 'stargaze',
-        'AKT': 'akash-network',
+        'AKT': 'akash',
         'SCRT': 'secret',
         'EVMOS': 'evmos',
         'LUNA': 'terra-luna-2',
-        'USDC': 'usd-coin'
+        'USDC': 'usdc'
       };
       
-      // Convert symbol to lowercase for case-insensitive matching
+      // Convert symbol to uppercase for case-insensitive matching
       const normalizedSymbol = tokenSymbol.toUpperCase();
       
-      // Get the CoinGecko ID for the token
-      const coinId = tokenIdMap[normalizedSymbol];
-      if (!coinId) {
+      // Get the token ID
+      const tokenId = tokenIdMap[normalizedSymbol];
+      if (!tokenId) {
         return `Price not available for ${tokenSymbol}. Supported tokens: ${Object.keys(tokenIdMap).join(', ')}`;
       }
       
-      // Fetch price from CoinGecko
-      const response = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${coinId}&vs_currencies=usd&include_24hr_change=true`);
+      // Try Osmosis API first
+      try {
+        const response = await fetch(`https://api-osmosis.imperator.co/tokens/v2/${tokenId}`);
       const data = await response.json();
       
-      if (data && data[coinId] && data[coinId].usd) {
-        const price = data[coinId].usd;
-        const change = data[coinId].usd_24h_change || 0;
+        if (data && data.price) {
+          const price = parseFloat(data.price);
+          const change = data.price_24h_change || 0;
         const changeSymbol = change >= 0 ? '+' : '';
         
         return `Current ${normalizedSymbol} price: $${price.toFixed(4)} USD (${changeSymbol}${change.toFixed(2)}% 24h)`;
-      } else {
-        throw new Error('Price data not available');
+        }
+      } catch (osmosisError) {
+        console.error(`Osmosis API Error for ${tokenSymbol}:`, osmosisError);
       }
+      
+      // Try Binance API as a backup for major tokens
+      try {
+        const response = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${normalizedSymbol}USDT`);
+        const data = await response.json();
+        
+        if (data && data.price) {
+          const price = parseFloat(data.price);
+          return `Current ${normalizedSymbol} price: $${price.toFixed(4)} USD (from Binance)`;
+        }
+      } catch (binanceError) {
+        console.error(`Binance API Error for ${tokenSymbol}:`, binanceError);
+      }
+      
+      // Fallback message
+      return `Unable to fetch current price for ${tokenSymbol}. Please try again later.`;
     } catch (error) {
       console.error(`Error fetching ${tokenSymbol} price:`, error);
       return `Unable to fetch current price for ${tokenSymbol}. Please try again later.`;
@@ -452,7 +838,7 @@ export class AgentService {
   }
 
   /**
-   * Get prices for multiple Cosmos ecosystem tokens
+   * Get prices for multiple Cosmos ecosystem tokens using Osmosis API
    * @returns Promise with formatted price data for key Cosmos tokens
    */
   async getCosmosEcosystemPrices(): Promise<string> {
@@ -460,7 +846,36 @@ export class AgentService {
       // Key tokens in the Cosmos ecosystem
       const tokens = ['INJ', 'ATOM', 'OSMO', 'JUNO'];
       
-      // Fetch all prices in parallel
+      // Try Osmosis API for all tokens at once
+      try {
+        const response = await fetch('https://api-osmosis.imperator.co/tokens/v2/all');
+        const data = await response.json();
+        
+        if (data && Array.isArray(data)) {
+          const results = tokens.map(token => {
+            const tokenData = data.find((t: any) => 
+              t.symbol.toUpperCase() === token || 
+              (t.name && t.name.toUpperCase() === token)
+            );
+            
+            if (tokenData) {
+              const price = parseFloat(tokenData.price);
+              const change = tokenData.price_24h_change || 0;
+              const changeSymbol = change >= 0 ? '+' : '';
+              
+              return `Current ${token} price: $${price.toFixed(4)} USD (${changeSymbol}${change.toFixed(2)}% 24h)`;
+            }
+            
+            return `Price for ${token} not available`;
+          });
+          
+          return results.join('\n\n');
+        }
+      } catch (osmosisError) {
+        console.error('Osmosis API Error:', osmosisError);
+      }
+      
+      // Fetch all prices in parallel as fallback
       const pricePromises = tokens.map(token => this.getCosmosTokenPrice(token));
       const prices = await Promise.all(pricePromises);
       
