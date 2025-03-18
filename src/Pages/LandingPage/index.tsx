@@ -90,7 +90,7 @@ export default function LandingPage() {
               <div className="absolute -left-8 bottom-0 w-20 h-20 bg-purple-500/10 rounded-full blur-2xl"></div>
             </h1>
             <p className="text-gray-500 text-lg mb-8 font-space-grotesk">
-             One Single OS for all your needs From DeFi Sawning Agents, Automations and More ....,Build For <span className="text-violet-800">{"{Injective}"}</span> 
+             One Single OS for all your needs From DeFi, Spawning Agents, Automations and More ....,Build For <span className="text-violet-800">{"{Injective}"}</span> 
             </p>
             <div className="flex items-center justify-center gap-4">
               <Link to="/dashboard"><Button size="lg" className="rounded-md px-8 bg-black text-white hover:bg-blue-700 font-space-grotesk">

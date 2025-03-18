@@ -178,4 +178,8 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ---
 
+
+check out the demo to get to know teh project 
+https://youtu.be/0OlHOqgQLEo
+
 Built with ❤️ for the Injective Ecosystem
