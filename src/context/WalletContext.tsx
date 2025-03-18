@@ -61,10 +61,25 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Fetch balance function
   const fetchBalance = async (injectiveAddress: string, endpoints: ReturnType<typeof getNetworkEndpoints>) => {
     try {
-      const bankApi = new ChainRestBankApi(endpoints.rest);
-      const balanceResponse = await bankApi.fetchBalance(injectiveAddress, 'inj');
+      // Create bank API with increased timeout
+      const bankApi = new ChainRestBankApi(endpoints.rest, {
+        timeout: 30000, // Increase timeout to 30 seconds
+        headers: { 'Cache-Control': 'no-cache' }
+      });
       
-      if (!balanceResponse.amount) {
+      // Add a timeout promise to handle API hanging
+      const timeoutPromise = new Promise<null>((_, reject) => {
+        setTimeout(() => reject(new Error('Balance fetch timeout')), 30000);
+      });
+      
+      // Race between the actual fetch and the timeout
+      const balanceResponse = await Promise.race([
+        bankApi.fetchBalance(injectiveAddress, 'inj'),
+        timeoutPromise
+      ]) as any;
+      
+      if (!balanceResponse || !balanceResponse.amount) {
+        console.log('No balance data returned, defaulting to 0');
         setBalance('0');
         return;
       }
@@ -81,28 +96,47 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
     } catch (error) {
       console.error('Error fetching balance:', error);
-      setBalance('0');
+      // Don't reset balance to 0 on error, keep previous value
+      // Just log the error and continue
     }
   };
 
-  // Add periodic balance refresh
+  // Add periodic balance refresh with more robust handling
   useEffect(() => {
     let intervalId: NodeJS.Timeout;
+    let retryCount = 0;
+    const maxRetries = 3;
+    const initialInterval = 15000; // 15 seconds
+    const backoffInterval = 30000; // 30 seconds after failures
 
     if (isConnected && address) {
       // Initial fetch
       const endpoints = getNetworkEndpoints(network);
       fetchBalance(address, endpoints);
 
-      // Refresh every 15 seconds
-      intervalId = setInterval(() => {
-        fetchBalance(address, endpoints);
-      }, 15000);
+      // Refresh with exponential backoff on failures
+      const refreshBalance = async () => {
+        try {
+          await fetchBalance(address, endpoints);
+          // Reset retry count on success
+          retryCount = 0;
+        } catch (error) {
+          console.warn(`Balance refresh attempt ${retryCount + 1} failed:`, error);
+          retryCount++;
+        }
+
+        // Schedule next refresh with appropriate interval
+        const nextInterval = retryCount > 0 ? backoffInterval : initialInterval;
+        intervalId = setTimeout(refreshBalance, nextInterval);
+      };
+
+      // Start the refresh cycle
+      intervalId = setTimeout(refreshBalance, initialInterval);
     }
 
     return () => {
       if (intervalId) {
-        clearInterval(intervalId);
+        clearTimeout(intervalId);
       }
     };
   }, [isConnected, address, network]);
@@ -122,9 +156,16 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setConnecting(true);
       setError('');
       
+      // Create a timeout for the entire connection process
+      const connectionTimeout = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Connection timeout - network may be unavailable')), 30000);
+      });
+      
+      // Get network endpoints with fallbacks
       const endpoints = getNetworkEndpoints(networkType);
       const isMainnet = networkType === Network.Mainnet;
       
+      // Create wallet strategy with more robust configuration
       const strategy = new WalletStrategy({
         chainId: isMainnet ? ChainId.Mainnet : ChainId.Testnet,
         ethereumOptions: {
@@ -132,14 +173,25 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           rpcUrl: endpoints.rpc
         },
         chainName: isMainnet ? 'injective-1' : 'injective-888',
-        restUrl: endpoints.rest
+        restUrl: endpoints.rest,
+        // Add timeout options
+        options: {
+          timeout: 30000, // 30 seconds timeout
+          headers: { 'Cache-Control': 'no-cache' }
+        }
       });
 
       // Set the wallet type
-      await strategy.setWallet(type);
+      await Promise.race([
+        strategy.setWallet(type),
+        connectionTimeout
+      ]);
 
       // Get addresses and handle EVM conversion if needed
-      const addresses = await strategy.getAddresses();
+      const addresses = await Promise.race([
+        strategy.getAddresses(),
+        connectionTimeout
+      ]);
       
       if (addresses && addresses.length > 0) {
         let injectiveAddress = addresses[0];
@@ -156,27 +208,33 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             if (ethereum) {
               // First switch chain, if it fails, then add the chain
               try {
-                await ethereum.request({
-                  method: 'wallet_switchEthereumChain',
-                  params: [{ chainId: `0x${isMainnet ? 'e9' : '89'}` }],
-                });
+                await Promise.race([
+                  ethereum.request({
+                    method: 'wallet_switchEthereumChain',
+                    params: [{ chainId: `0x${isMainnet ? 'e9' : '89'}` }],
+                  }),
+                  connectionTimeout
+                ]);
               } catch (switchError: any) {
                 // This error code indicates that the chain has not been added to MetaMask
                 if (switchError.code === 4902) {
-                  await ethereum.request({
-                    method: 'wallet_addEthereumChain',
-                    params: [{
-                      chainId: `0x${isMainnet ? 'e9' : '89'}`,
-                      chainName: isMainnet ? 'Injective' : 'Injective Testnet',
-                      nativeCurrency: {
-                        name: 'INJ',
-                        symbol: 'INJ',
-                        decimals: 18
-                      },
-                      rpcUrls: [endpoints.rpc],
-                      blockExplorerUrls: [isMainnet ? 'https://explorer.injective.network' : 'https://testnet.explorer.injective.network']
-                    }]
-                  });
+                  await Promise.race([
+                    ethereum.request({
+                      method: 'wallet_addEthereumChain',
+                      params: [{
+                        chainId: `0x${isMainnet ? 'e9' : '89'}`,
+                        chainName: isMainnet ? 'Injective' : 'Injective Testnet',
+                        nativeCurrency: {
+                          name: 'INJ',
+                          symbol: 'INJ',
+                          decimals: 18
+                        },
+                        rpcUrls: [endpoints.rpc],
+                        blockExplorerUrls: [isMainnet ? 'https://explorer.injective.network' : 'https://testnet.explorer.injective.network']
+                      }],
+                    }),
+                    connectionTimeout
+                  ]);
                 } else {
                   throw switchError;
                 }
@@ -198,8 +256,13 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         localStorage.setItem('walletType', type);
         localStorage.setItem('network', networkType);
 
-        // Fetch initial balance
-        await fetchBalance(injectiveAddress, endpoints);
+        // Fetch initial balance with a catch to prevent connection failure
+        try {
+          await fetchBalance(injectiveAddress, endpoints);
+        } catch (balanceError) {
+          console.warn('Initial balance fetch failed, will retry later:', balanceError);
+          // Don't throw - we still want to complete the connection
+        }
       } else {
         throw new Error('No addresses found');
       }
@@ -209,6 +272,8 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         errorMessage = `${type} wallet is not installed`;
       } else if (error.message?.includes('rejected')) {
         errorMessage = 'Connection rejected by user';
+      } else if (error.message?.includes('timeout')) {
+        errorMessage = 'Connection timed out. The network may be unavailable or overloaded.';
       } else if (error.message) {
         errorMessage = error.message;
       }

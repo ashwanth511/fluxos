@@ -140,7 +140,7 @@ const TokenPage: React.FC = () => {
   const [messages, setMessages] = useState<Array<{role: string, content: string}>>([
     {
       role: 'assistant',
-      content: 'Hi there! I\'m your AI assistant for token creation and trading strategies on Injective. How can I help you today?'
+      content: 'Hi there! I\'m your AI assistant for token creation and trading strategies,DCA an dvarious things about  Injective be funny and . How can I help you today?'
     }
   ]);
   const [isTyping, setIsTyping] = useState(false);
@@ -1038,8 +1038,7 @@ const TokenPage: React.FC = () => {
           <div className="p-8">
             {activeTab === 'ai' ? (
               <div>
-                <TradingStrategies />
-                <TokenCreationSuggestions />
+              
               <div className="space-y-8">
                 <div className="bg-gray-50 rounded-lg p-6">
                     <div className="flex items-center mb-4">

@@ -1813,8 +1813,8 @@ You can also specify the trading pair if needed:
                       <div className="text-xs text-gray-500">{market.marketType || marketType}</div>
                     </div>
                   </div>
-                  <div className={`${parseFloat(market.priceChange || '0') >= 0 ? 'text-green-600' : 'text-red-600'} font-medium`}>
-                    {parseFloat(market.priceChange || '0') >= 0 ? '+' : ''}{parseFloat(market.priceChange || '0').toFixed(2)}%
+                  <div className={`${market.priceChangeColor || (parseFloat(market.priceChange || '0') >= 0 ? 'text-green-600' : 'text-red-600')} font-medium`}>
+                    {market.displayPriceChange || ((parseFloat(market.priceChange || '0') >= 0 ? '+' : '') + parseFloat(market.priceChange || '0').toFixed(2) + '%')}
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-sm mb-3">
@@ -2159,7 +2159,7 @@ You can also specify the trading pair if needed:
                 message.role === 'assistant' &&
                 typeof message.content === 'string' &&
                 message.content.includes('vault') &&
-                (message.content.includes('APY') || message.content.includes('Vaults'));
+                (message.content.includes('APY') || message.content.includes('Vaults') || message.content.includes('vaults'));
               
               // Check if this is a market display message
               const isMarketDisplayMessage =
