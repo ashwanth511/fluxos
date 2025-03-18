@@ -84,21 +84,21 @@ export default function LandingPage() {
         <div className="container mx-auto max-w-6xl relative">
           <div className="text-center mb-16">
             <h1 className="font-space-grotesk text-6xl md:text-8xl font-bold mb-6 relative">
-              Manage your wall<span className="text-red-500">*</span>t easily!
-              <span className="text-red-500">{"{ AI backbone }"}</span>
+              Unleash The Power of AI<span className="text-red-500">*</span>
+              <span className="text-blue-500">{"{ INJective }"}</span>
               <div className="absolute -right-8 top-0 w-20 h-20 bg-blue-500/10 rounded-full blur-2xl"></div>
               <div className="absolute -left-8 bottom-0 w-20 h-20 bg-purple-500/10 rounded-full blur-2xl"></div>
             </h1>
             <p className="text-gray-500 text-lg mb-8 font-space-grotesk">
-              Crypter dashboard helps you to manage your wallet and see watchlist in shortest time.
+             One Single OS for all your needs From DeFi Sawning Agents, Automations and More ....,Build For <span className="text-violet-800">{"{Injective}"}</span> 
             </p>
             <div className="flex items-center justify-center gap-4">
-              <Button size="lg" className="rounded-md px-8 bg-black text-white hover:bg-blue-700 font-space-grotesk">
+              <Link to="/dashboard"><Button size="lg" className="rounded-md px-8 bg-black text-white hover:bg-blue-700 font-space-grotesk">
                 Get Started 
-              </Button>
-              <Button variant="ghost" size="lg" className="rounded-md gap-2 font-space-grotesk">
+              </Button> </Link>
+              <Link to="https://youtube.com/"><Button variant="ghost" size="lg" className="rounded-md gap-2 font-space-grotesk">
                 <Play className="w-4 h-4" /> Watch Demo
-              </Button>
+              </Button></Link>
             </div>
           </div>
         </div>
@@ -110,7 +110,7 @@ export default function LandingPage() {
         
         <div className="w-full max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
-            <h2 className="text-4xl font-bold mb-4 text-red-500">{"{INOS}"}</h2>
+            <h2 className="text-4xl font-bold mb-4 text-red-500">{"{FLUXOS}"}</h2>
             <p className="text-gray-500 max-w-2xl mx-auto">
               The first hyper-intelligent decentralized trading ecosystem with IFTTT automation
             </p>

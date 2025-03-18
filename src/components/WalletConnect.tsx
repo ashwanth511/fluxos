@@ -1,32 +1,45 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Button } from './ui/button'
-import { Wallet, ChevronDown, Bot } from 'lucide-react'
-import { WalletStrategy } from '@injectivelabs/wallet-ts'
+import { Wallet as WalletIcon, ChevronDown } from 'lucide-react'
+import { Wallet } from '@injectivelabs/wallet-ts'
 import { Network } from '@injectivelabs/networks'
-import { ChainId } from '@injectivelabs/ts-types'
 import { AtomIcon } from './atom-icon'
+import { Link } from 'react-router-dom'
+import { useWallet } from '../context/WalletContext'
 
-export default function WalletConnect() {
-  const [isConnected, setIsConnected] = useState(false)
-  const [address, setAddress] = useState('')
+interface WalletConnectProps {
+  setAddress?: (address: string) => void;
+}
 
-  const connectWallet = async () => {
-    try {
-      const walletStrategy = new WalletStrategy({
-        chainId: ChainId.Mainnet,
-        networkType: Network.Mainnet
-      })
+// Define supported wallets
+const supportedWallets = [
+  { type: Wallet.Keplr, name: 'Keplr', category: 'cosmos' },
+  { type: Wallet.Metamask, name: 'MetaMask', category: 'evm' },
+  { type: Wallet.WalletConnect, name: 'WalletConnect', category: 'evm' },
+  { type: Wallet.Leap, name: 'Leap', category: 'cosmos' },
+  { type: Wallet.Cosmostation, name: 'Cosmostation', category: 'cosmos' }
+] as const
 
-      await walletStrategy.connectWallet()
-      const addresses = await walletStrategy.getAddresses()
-      if (addresses.length > 0) {
-        setAddress(addresses[0])
-        setIsConnected(true)
-      }
-    } catch (e) {
-      console.error('Failed to connect wallet:', e)
+export default function WalletConnect({ setAddress }: WalletConnectProps) {
+  const { 
+    isConnected, 
+    address, 
+    network,
+    connecting: isConnecting,
+    error,
+    connectWallet,
+    disconnectWallet,
+    switchNetwork
+  } = useWallet()
+
+  const [showWalletDropdown, setShowWalletDropdown] = useState(false)
+  const [showNetworkDropdown, setShowNetworkDropdown] = useState(false)
+
+  useEffect(() => {
+    if (setAddress && address) {
+      setAddress(address);
     }
-  }
+  }, [address, setAddress]);
 
   const formatAddress = (addr: string) => {
     if (!addr) return ''
@@ -38,32 +51,112 @@ export default function WalletConnect() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
           <div className="flex items-center">
-       <AtomIcon className='w-6 h-6'/>
-            <span className="ml-2 text-xl font-semibold font-space-grotesk">FLUXOS</span>
+            <AtomIcon className='w-6 h-6'/>
+            <Link to="/"> <span className="ml-2 text-xl font-semibold font-space-grotesk">FLUXOS</span></Link>
           </div>
           
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 relative">
             {!isConnected ? (
-              <Button 
-                onClick={connectWallet}
-                variant="outline"
-                className="font-space-grotesk flex items-center gap-2 border-gray-200"
-              >
-                <Wallet className="w-4 h-4" />
-                Connect Wallet
-              </Button>
+              <div className="relative">
+                <Button 
+                  onClick={() => setShowWalletDropdown(!showWalletDropdown)}
+                  variant="outline"
+                  className="font-space-grotesk flex items-center gap-2 border-gray-200"
+                  disabled={isConnecting}
+                >
+                  <WalletIcon className="w-4 h-4" />
+                  {isConnecting ? 'Connecting...' : 'Connect Wallet'}
+                  <ChevronDown className="w-4 h-4" />
+                </Button>
+
+                {/* Wallet Selection Dropdown */}
+                {showWalletDropdown && (
+                  <div className="absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5">
+                    <div className="py-1" role="menu">
+                      {supportedWallets.map((wallet) => (
+                        <button
+                          key={wallet.type}
+                          onClick={() => {
+                            connectWallet(wallet.type);
+                            setShowWalletDropdown(false);
+                          }}
+                          className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                          role="menuitem"
+                        >
+                          {wallet.name}
+                          <span className="ml-2 text-xs text-gray-500">
+                            ({wallet.category})
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             ) : (
-              <Button 
-                variant="outline" 
-                className="font-space-grotesk flex items-center gap-2 border-gray-200"
-              >
-                <span className="w-2 h-2 bg-green-500 rounded-full"></span>
-                {formatAddress(address)}
-                <ChevronDown className="w-4 h-4" />
-              </Button>
+              <div className="relative">
+                <Button 
+                  variant="outline" 
+                  className="font-space-grotesk flex items-center gap-2 border-gray-200"
+                  onClick={() => setShowNetworkDropdown(!showNetworkDropdown)}
+                >
+                  <span className="w-2 h-2 bg-green-500 rounded-full"></span>
+                  {formatAddress(address)}
+                  <ChevronDown className="w-4 h-4" />
+                </Button>
+
+                {/* Network Info & Disconnect Dropdown */}
+                {showNetworkDropdown && (
+                  <div className="absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5">
+                    <div className="py-1" role="menu">
+                      <div className="px-4 py-2 text-sm font-medium text-gray-900">
+                        Network
+                      </div>
+                      <button
+                        onClick={() => {
+                          switchNetwork(Network.Mainnet);
+                          setShowNetworkDropdown(false);
+                        }}
+                        className={`block w-full text-left px-4 py-2 text-sm ${
+                          network === Network.Mainnet ? 'bg-gray-100 text-gray-900' : 'text-gray-700'
+                        } hover:bg-gray-100`}
+                      >
+                        Mainnet
+                      </button>
+                      <button
+                        onClick={() => {
+                          switchNetwork(Network.Testnet);
+                          setShowNetworkDropdown(false);
+                        }}
+                        className={`block w-full text-left px-4 py-2 text-sm ${
+                          network === Network.Testnet ? 'bg-gray-100 text-gray-900' : 'text-gray-700'
+                        } hover:bg-gray-100`}
+                      >
+                        Testnet
+                      </button>
+                      <div className="border-t border-gray-100"></div>
+                      <button
+                        onClick={() => {
+                          disconnectWallet();
+                          setShowNetworkDropdown(false);
+                        }}
+                        className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100"
+                        role="menuitem"
+                      >
+                        Disconnect
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>
+        {error && (
+          <div className="text-red-500 text-sm mt-2">
+            {error}
+          </div>
+        )}
       </div>
     </header>
   )

@@ -1,5 +1,5 @@
 import WalletConnect from '@/components/WalletConnect';
-import React, { useState, useCallback, useEffect } from 'react';
+import  { useState, useCallback,  } from 'react';
 import ReactFlow, {
   Controls,
   Background,
@@ -11,7 +11,10 @@ import ReactFlow, {
   MarkerType,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { FaSave, FaPlay, FaPause } from 'react-icons/fa';
+import { ChevronLeft,Save, Play, Pause } from 'lucide-react';
+
+import { Link } from 'react-router-dom';
+import DockIcons from '@/components/DockIcons';
 
 // Icons (you'll need to add these to your public folder)
 const icons = {
@@ -371,12 +374,22 @@ const actionCategories = [
 ];
 
 // Enhanced Sidebar Component with Grid Layout
-const Sidebar = ({ onDragStart }) => {
-  const [activeTab, setActiveTab] = useState('triggers');
+const Sidebar = ({ activeTab, setActiveTab, onDragStart }) => {
   const categories = activeTab === 'triggers' ? triggerCategories : actionCategories;
 
   return (
-    <div className="w-64 bg-white border-r border-gray-200 py-4 flex flex-col h-full">
+    <div className="w-64 bg-white border-r border-gray-200 py-5 flex flex-col h-full">
+      {/* Back Button */}
+      <div className="px-4 ">
+        <Link 
+          to="/dashboard" 
+          className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors  rounded-lg hover:bg-gray-50"
+        >
+          <ChevronLeft className="w-5 h-5" />
+          <span>Back to Dashboard</span>
+        </Link>
+      </div>
+
       {/* Tab Switcher */}
       <div className="px-4 mb-4">
         <div className="flex rounded-lg bg-gray-100 p-1">
@@ -448,7 +461,7 @@ const NodeConfigPanel = ({ node }) => {
   if (!allItems) return null;
 
   return (
-    <div className="w-80 bg-white border-l border-gray-200 p-6 overflow-y-auto">
+    <div className="w-80 bg-white border-l border-gray-200 p-6 py-20 overflow-y-auto">
       <div className="flex items-center gap-3 mb-6">
         <img src={nodeData.icon} alt={nodeData.type} className="w-8 h-8" />
         <div>
@@ -586,6 +599,7 @@ const BuilderPage = () => {
   const [workflowName, setWorkflowName] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
+  const [activeTab, setActiveTab] = useState('triggers');
 
   // Edge styling
   const edgeOptions = {
@@ -670,62 +684,63 @@ const BuilderPage = () => {
   }, [isRunning]);
 
   return (
-    <>
-      <div className="flex h-screen bg-gray-50">
-        <Sidebar onDragStart={onNodeDragStart} />
-        <div className="flex-1 flex flex-col">
-          {/* Enhanced Header with Save/Run Controls */}
-          <div className="bg-white border-b border-gray-200 px-6 py-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <WalletConnect />
-                <div className="h-6 w-px bg-gray-300" /> {/* Divider */}
-                <input
-                  type="text"
-                  placeholder="Enter Workflow Name"
-                  className="border border-gray-300 rounded-md px-4 py-2 w-64 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  value={workflowName}
-                  onChange={(e) => setWorkflowName(e.target.value)}
-                />
-              </div>
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={toggleWorkflow}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-md ${
-                    isRunning 
-                      ? 'bg-red-100 text-red-600 hover:bg-red-200'
-                      : 'bg-green-100 text-green-600 hover:bg-green-200'
-                  }`}
-                >
-                  {isRunning ? (
-                    <>
-                      <FaPause className="w-4 h-4" />
-                      <span>Pause Workflow</span>
-                    </>
-                  ) : (
-                    <>
-                      <FaPlay className="w-4 h-4" />
-                      <span>Run Workflow</span>
-                    </>
-                  )}
-                </button>
-                <button
-                  onClick={saveWorkflow}
-                  disabled={isSaving || !workflowName}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-md ${
-                    isSaving || !workflowName
-                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                      : 'bg-blue-100 text-blue-600 hover:bg-blue-200'
-                  }`}
-                >
-                  <FaSave className="w-4 h-4" />
-                  <span>{isSaving ? 'Saving...' : 'Save Workflow'}</span>
-                </button>
-              </div>
-            </div>
+    <div className="h-screen flex flex-col">
+      {/* Header with WalletConnect and Controls */}
+      <div className="bg-white border-b border-gray-200 px-6 py-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <WalletConnect />
+            <div className="h-6 w-px bg-gray-300" /> {/* Divider */}
+            <input
+              type="text"
+              placeholder="Enter Workflow Name"
+              className="border border-gray-300 rounded-md px-4 py-2 w-64 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              value={workflowName}
+              onChange={(e) => setWorkflowName(e.target.value)}
+            />
           </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={toggleWorkflow}
+              className={`flex items-center gap-2 px-4 py-2 rounded-md ${
+                isRunning 
+                  ? 'bg-red-100 text-red-600 hover:bg-red-200'
+                  : 'bg-green-100 text-green-600 hover:bg-green-200'
+              }`}
+            >
+              {isRunning ? (
+                <>
+                  <Pause className="w-4 h-4" />
+                  <span>Pause Workflow</span>
+                </>
+              ) : (
+                <>
+                  <Play className="w-4 h-4" />
+                  <span>Run Workflow</span>
+                </>
+              )}
+            </button>
+            <button
+              onClick={saveWorkflow}
+              disabled={isSaving || !workflowName}
+              className={`flex items-center gap-2 px-4 py-2 rounded-md ${
+                isSaving || !workflowName
+                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  : 'bg-blue-100 text-blue-600 hover:bg-blue-200'
+              }`}
+            >
+              <Save className="w-4 h-4" />
+              <span>{isSaving ? 'Saving...' : 'Save Workflow'}</span>
+            </button>
+          </div>
+        </div>
+      </div>
 
-          <div className="flex-1">
+      {/* Main Content */}
+      <div className="flex-1 flex">
+        <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} onDragStart={onNodeDragStart} />
+        <div className="flex-1 flex flex-col">
+          <div className="h-full">
             <ReactFlow
               nodes={nodes}
               edges={edges}
@@ -745,8 +760,9 @@ const BuilderPage = () => {
           </div>
         </div>
         <NodeConfigPanel node={selectedNode} />
+        <DockIcons />
       </div>
-    </>
+    </div>
   );
 };
 
