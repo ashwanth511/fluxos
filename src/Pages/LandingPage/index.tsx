@@ -85,7 +85,7 @@ export default function LandingPage() {
           <div className="text-center mb-16">
             <h1 className="font-space-grotesk text-6xl md:text-8xl font-bold mb-6 relative">
               Manage your wall<span className="text-red-500">*</span>t easily!
-              <span className="text-red-500">{"{ AI backbone }"}</span>
+              <span className="text-blue-500">{"{ INJective }"}</span>
               <div className="absolute -right-8 top-0 w-20 h-20 bg-blue-500/10 rounded-full blur-2xl"></div>
               <div className="absolute -left-8 bottom-0 w-20 h-20 bg-purple-500/10 rounded-full blur-2xl"></div>
             </h1>
@@ -110,7 +110,7 @@ export default function LandingPage() {
         
         <div className="w-full max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
-            <h2 className="text-4xl font-bold mb-4 text-red-500">{"{INOS}"}</h2>
+            <h2 className="text-4xl font-bold mb-4 text-red-500">{"{FLUXOS}"}</h2>
             <p className="text-gray-500 max-w-2xl mx-auto">
               The first hyper-intelligent decentralized trading ecosystem with IFTTT automation
             </p>

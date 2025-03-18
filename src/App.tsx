@@ -11,6 +11,7 @@ import TokenPage from './Pages/TokenPage'
 import TokensPage from './Pages/Tokens'
 import TokenViewPage from './Pages/TokenView'
 import WalletPage from './Pages/Wallet'
+import SpawnedAgentsPage from './Pages/SpawnedAgents'
 
 function App() {
   return (
@@ -24,6 +25,7 @@ function App() {
         <Route path="/tokens" element={<TokensPage />} />
         <Route path="/token-view/:id" element={<TokenViewPage />} />
         <Route path="/wallet" element={<WalletPage />} />
+        <Route path="/spawned-agents" element={<SpawnedAgentsPage />} />
         <Route path="*" element={<LandingPage />} />
       </Routes>
     </WalletProvider>

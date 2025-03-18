@@ -7,8 +7,12 @@ import { Bot, Send, Copy, Check } from "lucide-react"
 import DockIcons from "@/components/DockIcons"
 import WalletConnect from "@/components/WalletConnect"
 import agentimg from "@/assets/hero13.png"
-import { AgentService, Message, TokenDenom, ValidatorInfo } from "@/services/agentService"
- 
+import { AgentService, Message, TokenDenom, ValidatorInfo} from "@/services/agentService"
+import { useWallet } from "@/context/WalletContext"
+import { useNavigate } from "react-router-dom"
+
+import { Network } from "@injectivelabs/networks"
+
 const styles = `
   @keyframes wave {
     0% { transform: translateY(0) scale(1) rotate(0deg); }
@@ -62,7 +66,9 @@ const styles = `
 `
 
 export default function DashboardPage() {
-  const [input, setInput] = useState("")
+  const navigate = useNavigate();
+  
+  // State for user messages and conversation
   const [messages, setMessages] = useState<Message[]>([
     { 
       role: 'assistant', 
@@ -75,15 +81,36 @@ export default function DashboardPage() {
                "• View all tokens on Injective"
     }
   ])
+  const [input, setInput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
+  
+  // State for wallet connection
+  const { network } = useWallet();
   const [address, setAddress] = useState("")
-  const [validators, setValidators] = useState<ValidatorInfo[]>([])
-  const [showValidators, setShowValidators] = useState(false)
+  
+  // State for showing different card types
+  const [showValidators, setShowValidators] = useState(false);
+  const [showTokens, setShowTokens] = useState(false);
+  const [showVaultCards, setShowVaultCards] = useState(false);
+  const [showMarkets, setShowMarkets] = useState(false);
+  
+  // State for tokens and vaults
   const [tokens, setTokens] = useState<TokenDenom[]>([])
-  const [showTokens, setShowTokens] = useState(false)
-  const [tokenPage, setTokenPage] = useState(1)
-  const [tokenNetwork, setTokenNetwork] = useState("mainnet")
+  const [validators, setValidators] = useState<ValidatorInfo[]>([])
+  const [vaultsList, setVaultsList] = useState<any[]>([]);
   const [copiedDenom, setCopiedDenom] = useState<string | null>(null)
+  
+  // State for markets
+  const [spotMarkets, setSpotMarkets] = useState<any[]>([]);
+  const [derivativeMarkets, setDerivativeMarkets] = useState<any[]>([]);
+  const [selectedMarketType, setSelectedMarketType] = useState<'spot' | 'derivative'>('spot');
+  const [marketList, setMarketList] = useState<any[]>([]);
+  
+  // State for market pagination
+  const [currentMarketPage, setCurrentMarketPage] = useState(1);
+  const marketsPerPage = 5;
+  
+  // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const agentService = useRef<AgentService | null>(null)
 
@@ -92,6 +119,13 @@ export default function DashboardPage() {
       agentService.current = new AgentService()
     }
   }, [])
+
+  useEffect(() => {
+    if (agentService.current) {
+      agentService.current.setNetwork(network);
+      console.log(`Network changed to ${network}, updating AgentService`);
+    }
+  }, [network]);
 
   // Function to copy text to clipboard
   const copyToClipboard = (text: string) => {
@@ -241,25 +275,22 @@ export default function DashboardPage() {
       }]);
       
       // Reset token page when fetching new tokens
-      setTokenPage(1);
-      setTokenNetwork(useTestnet ? "testnet" : "mainnet");
-      
-      // Get tokens with network parameter
       const tokenList = await agentService.current.getAllTokenDenoms(useTestnet);
       
       // Store tokens in state
       setTokens(tokenList);
-      setShowTokens(true);
       
-      // Replace the loading message with a simple header message
-      setMessages(prev => {
+           setMessages(prev => {
         const newMessages = [...prev];
         newMessages[newMessages.length - 1] = { 
           role: 'assistant', 
-          content: `Here are tokens on Injective ${useTestnet ? 'Testnet' : 'Mainnet'} (Page ${tokenPage}/${Math.ceil(tokenList.length / 5)})` 
+          content: `Here are tokens on Injective ${useTestnet ? 'Testnet' : 'Mainnet'} (Page 1)` 
         };
         return newMessages;
       });
+      
+      // Show the tokens UI
+      setShowTokens(true);
     } catch (error) {
       console.error('Error fetching token denoms:', error);
       setMessages(prev => [...prev, { 
@@ -278,22 +309,23 @@ export default function DashboardPage() {
     const pageSize = 5;
     const totalPages = Math.ceil(tokens.length / pageSize);
     
-    let newPage = tokenPage;
-    if (direction === 'next' && tokenPage < totalPages) {
-      newPage = tokenPage + 1;
-    } else if (direction === 'prev' && tokenPage > 1) {
-      newPage = tokenPage - 1;
+    // Get current page from last message
+    const lastMessage = messages[messages.length - 1];
+    const pageMatch = lastMessage?.content?.match?.(/Page (\d+)/);
+    let page = pageMatch ? parseInt(pageMatch[1]) : 1;
+    
+    // Update page based on direction
+    if (direction === 'next') {
+      page = page < totalPages ? page + 1 : 1; // Loop back to first page
     } else {
-      return; // No change needed
+      page = page > 1 ? page - 1 : totalPages; // Loop back to last page
     }
     
-    // Update the page number
-    setTokenPage(newPage);
-    
-    // Add a new message for the page change
+    // Update the page number with network info
+    const networkType = lastMessage?.content?.includes?.('Testnet') ? 'Testnet' : 'Mainnet';
     setMessages(prev => [...prev, { 
       role: 'assistant', 
-      content: `Here are tokens on Injective ${tokenNetwork === "testnet" ? 'Testnet' : 'Mainnet'} (Page ${newPage}/${totalPages})` 
+      content: `Here are tokens on Injective ${networkType} (Page ${page}/${totalPages})` 
     }]);
   };
 
@@ -518,6 +550,470 @@ export default function DashboardPage() {
     setIsLoading(false);
   };
 
+ 
+  // Handle showing available vaults with card display
+  const handleShowVaultsWithCards = async (skipUserMessage = false) => {
+    if (!agentService.current) {
+      setMessages(prev => [...prev, 
+        { role: 'assistant', content: "Service is initializing. Please try again in a moment." }
+      ]);
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      // Add user message first if not skipped
+      if (!skipUserMessage) {
+        setMessages(prev => [...prev, { role: 'user', content: "Show me available vaults" }]);
+      }
+      
+      // Add a loading message
+      setMessages(prev => [...prev, { role: 'assistant', content: "Fetching available Mito vaults..." }]);
+      
+      const vaults = await agentService.current.getMitoVaults();
+      
+      // Set the vaults for card display
+      setVaultsList(vaults);
+      setShowVaultCards(true);
+      
+      // Update the last message
+      setMessages(prev => {
+        const newMessages = [...prev];
+        newMessages[newMessages.length - 1] = { 
+          role: 'assistant', 
+          content: "Here are the available Mito vaults. Click on a vault to deposit or use the Deposit button." 
+        };
+        return newMessages;
+      });
+    } catch (error) {
+      console.error('Error fetching vaults:', error);
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: "I encountered an error while fetching the vaults. Please try again later." 
+      }]);
+    }
+    
+    setIsLoading(false);
+  };
+
+  // Handle showing highest APY vault
+  const handleHighestAPYVault = async (skipUserMessage = false) => {
+    if (!agentService.current) {
+      setMessages(prev => [...prev, 
+        { role: 'assistant', content: "Service is initializing. Please try again in a moment." }
+      ]);
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      // Add user message first if not skipped
+      if (!skipUserMessage) {
+        setMessages(prev => [...prev, { role: 'user', content: "What's the highest APY vault?" }]);
+      }
+      
+      // Add a loading message
+      setMessages(prev => [...prev, { role: 'assistant', content: "Finding the highest APY vault..." }]);
+      
+      const highestVault = await agentService.current.getHighestAPYVault();
+      const response = `The highest APY is currently offered by the ${highestVault.name} at ${highestVault.apy.toFixed(2)}%. This vault uses a ${highestVault.strategy} strategy with ${highestVault.riskLevel} risk level. Would you like more details about this vault?`;
+      
+      // Update the last message instead of adding a new one
+      setMessages(prev => {
+        const newMessages = [...prev];
+        newMessages[newMessages.length - 1] = { role: 'assistant', content: response };
+        return newMessages;
+      });
+    } catch (error) {
+      console.error('Error fetching highest APY vault:', error);
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: "I encountered an error while finding the highest APY vault. Please try again later." 
+      }]);
+    }
+    
+    setIsLoading(false);
+  };
+
+  // Handle comparing staking vs vaults
+  const handleCompareStakingVsVaults = async (skipUserMessage = false) => {
+    if (!agentService.current) {
+      setMessages(prev => [...prev, 
+        { role: 'assistant', content: "Service is initializing. Please try again in a moment." }
+      ]);
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      // Add user message first if not skipped
+      if (!skipUserMessage) {
+        setMessages(prev => [...prev, { role: 'user', content: "Compare staking and vaults" }]);
+      }
+      
+      // Add a loading message
+      setMessages(prev => [...prev, { role: 'assistant', content: "Comparing staking and vault options..." }]);
+      
+      const response = await agentService.current.compareStakingVsVaults();
+      
+      // Update the last message instead of adding a new one
+      setMessages(prev => {
+        const newMessages = [...prev];
+        newMessages[newMessages.length - 1] = { role: 'assistant', content: response };
+        return newMessages;
+      });
+    } catch (error) {
+      console.error('Error comparing staking and vaults:', error);
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: "I encountered an error while comparing staking and vaults. Please try again later." 
+      }]);
+    }
+    
+    setIsLoading(false);
+  };
+
+  // Handle vault details request
+  const handleVaultDetails = async (vaultId: string, skipUserMessage = false) => {
+    if (!agentService.current) {
+      setMessages(prev => [...prev, 
+        { role: 'assistant', content: "Service is initializing. Please try again in a moment." }
+      ]);
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      // Add user message first if not skipped
+      if (!skipUserMessage) {
+        setMessages(prev => [...prev, { role: 'user', content: `Tell me about the ${vaultId.replace('vault_', '').replace('_', '/')} vault` }]);
+      }
+      
+      // Add a loading message
+      setMessages(prev => [...prev, { role: 'assistant', content: "Fetching vault details..." }]);
+      
+      const response = await agentService.current.getVaultDetails(vaultId);
+      
+      // Update the last message instead of adding a new one
+      setMessages(prev => {
+        const newMessages = [...prev];
+        newMessages[newMessages.length - 1] = { role: 'assistant', content: response };
+        return newMessages;
+      });
+    } catch (error) {
+      console.error('Error fetching vault details:', error);
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: "I encountered an error while fetching vault details. Please try again later." 
+      }]);
+    }
+    
+    setIsLoading(false);
+  };
+
+ 
+
+  const handleRealVaultDeposit = async (vaultId: string, amount: string, skipUserMessage = false) => {
+    if (!address) {
+      setMessages(prev => [...prev, 
+        { role: 'assistant', content: "Please connect your wallet first! Click the 'Connect Wallet' button above." }
+      ]);
+      return;
+    }
+
+    if (!agentService.current) {
+      setMessages(prev => [...prev, 
+        { role: 'assistant', content: "Service is initializing. Please try again in a moment." }
+      ]);
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      // Add user message first if not skipped
+      if (!skipUserMessage) {
+        setMessages(prev => [...prev, { role: 'user', content: `Deposit ${amount} INJ into ${vaultId.replace('vault_', '').replace('_', '/')} vault` }]);
+      }
+      
+      // Add a loading message showing Keplr wallet connection process
+      setMessages(prev => [...prev, { role: 'assistant', content: "Connecting to Keplr wallet..." }]);
+      
+      // Check if Keplr is available
+      if (typeof window === 'undefined' || !window.keplr) {
+        setMessages(prev => {
+          const newMessages = [...prev];
+          newMessages[newMessages.length - 1] = { 
+            role: 'assistant', 
+            content: "Keplr wallet extension is not installed. Please install Keplr and try again." 
+          };
+          return newMessages;
+        });
+        setIsLoading(false);
+        return;
+      }
+      
+      try {
+        // Initialize Injective Chain ID
+        const chainId = 'injective-1'; // Mainnet chain ID
+        
+        // Request Keplr to connect to Injective chain
+        await window.keplr.enable(chainId);
+        
+        // Update message to show wallet connection in progress
+        setMessages(prev => {
+          const newMessages = [...prev];
+          newMessages[newMessages.length - 1] = { 
+            role: 'assistant', 
+            content: "Keplr wallet connected. Preparing transaction..." 
+          };
+          return newMessages;
+        });
+        
+        // Execute the deposit through the agent service
+        const response = await agentService.current.depositToVault(vaultId, amount, address);
+        
+        // Update the message with the final response
+        setMessages(prev => {
+          const newMessages = [...prev];
+          newMessages[newMessages.length - 1] = { role: 'assistant', content: response };
+          return newMessages;
+        });
+      } catch (error) {
+        console.error('Keplr connection error:', error);
+        setMessages(prev => {
+          const newMessages = [...prev];
+          newMessages[newMessages.length - 1] = { 
+            role: 'assistant', 
+            content: `Error connecting to Keplr wallet: ${error.message || 'Unknown error'}. Please make sure Keplr is installed and unlocked.` 
+          };
+          return newMessages;
+        });
+      }
+    } catch (error) {
+      console.error('Error processing vault deposit:', error);
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: "I encountered an error while processing the vault deposit. Please try again later." 
+      }]);
+    }
+    
+    setIsLoading(false);
+  };
+
+  const handleFetchMarkets = async (marketType: 'spot' | 'derivative' = 'spot', skipUserMessage = false) => {
+    if (!agentService.current) {
+      setMessages(prev => [...prev, 
+        { role: 'assistant', content: "Service is initializing. Please try again in a moment." }
+      ]);
+      return;
+    }
+
+    console.log(`Starting to fetch ${marketType} markets...`);
+    setIsLoading(true);
+    try {
+      // Add user message first if not skipped
+      if (!skipUserMessage) {
+        setMessages(prev => [...prev, { 
+          role: 'user', 
+          content: `Show me ${marketType} markets` 
+        }]);
+      }
+      
+      // Add a loading message
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: `Fetching ${marketType} markets...` 
+      }]);
+      
+      // IMPORTANT: Set the selected market type FIRST
+      setSelectedMarketType(marketType);
+      console.log(`Set selected market type to: ${marketType}`);
+      
+      // Fetch markets
+      console.log(`Calling fetchAndLogMarkets with type: ${marketType}`);
+      const markets = await agentService.current.fetchAndLogMarkets(marketType);
+      console.log(`Received markets response:`, markets);
+      
+      // Store markets in state based on type
+      if (marketType === 'spot') {
+        setSpotMarkets(markets.markets);
+        console.log(`Stored ${markets.markets?.length || 0} spot markets`);
+      } else {
+        setDerivativeMarkets(markets.markets);
+        console.log(`Stored ${markets.markets?.length || 0} derivative markets`);
+      }
+      
+      // Set the market list AFTER setting the selected type
+      setMarketList(markets.markets);
+      console.log(`Set market list with ${markets.markets?.length || 0} ${marketType} markets`);
+      
+      // Show markets
+      setShowMarkets(true);
+      
+      // Update the last message to show markets
+      setMessages(prev => {
+        const newMessages = [...prev];
+        const networkName = agentService.current?.getCurrentNetwork() === Network.Mainnet ? 'Mainnet' : 'Testnet';
+        newMessages[newMessages.length - 1] = { 
+          role: 'assistant', 
+          content: `Here are the available ${marketType} markets on ${networkName}` 
+        };
+        return newMessages;
+      });
+      
+      // Reset current page
+      setCurrentMarketPage(1);
+    } catch (error) {
+      console.error(`Error fetching ${marketType} markets:`, error);
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: `I encountered an error while fetching ${marketType} markets. Please try again later.` 
+      }]);
+    }
+    setIsLoading(false);
+  };
+
+  const handlePlaceSpotOrder = async (marketId: string, quantity: string, price?: string, side: 'buy' | 'sell' = 'buy', isMarket: boolean = true) => {
+    if (!address) {
+      setMessages(prev => [...prev, 
+        { role: 'assistant', content: "Please connect your wallet first! Click the 'Connect Wallet' button above." }
+      ]);
+      return;
+    }
+
+    if (!agentService.current) {
+      setMessages(prev => [...prev, 
+        { role: 'assistant', content: "Service is initializing. Please try again in a moment." }
+      ]);
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      // Find market details
+      const market = spotMarkets.find(m => m.marketId === marketId);
+      if (!market) {
+        throw new Error("Market not found");
+      }
+      
+      // Add user message
+      const orderType = isMarket ? "market" : "limit";
+      const priceInfo = isMarket ? "" : ` at ${price}`;
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: `Processing your request to ${side} ${orderType} order for ${quantity} ${market.baseToken}${priceInfo}...` 
+      }]);
+      
+      // Add a loading message
+      setMessages(prev => [...prev, { role: 'assistant', content: "Processing your order..." }]);
+      
+      // Call the spot order service
+      const response = await agentService.current.placeSpotOrder(
+        marketId,
+        side,
+        quantity,
+        price,
+        isMarket
+      );
+      
+      // Replace the loading message with the order result
+      setMessages(prev => {
+        const newMessages = [...prev];
+        newMessages[newMessages.length - 1] = { 
+          role: 'assistant', 
+          content: `Your ${side} ${orderType} order for ${quantity} ${market.baseToken}${priceInfo} has been placed successfully! ${response}` 
+        };
+        return newMessages;
+      });
+    } catch (error) {
+      console.error('Error placing spot order:', error);
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: `I encountered an error while placing your order: ${error instanceof Error ? error.message : "Unknown error"}. Please try again.` 
+      }]);
+    }
+    setIsLoading(false);
+  };
+
+  const handlePlaceDerivativeOrder = async (marketId: string, quantity: string, price?: string, side: 'buy' | 'sell' = 'buy', isMarket: boolean = true) => {
+    if (!address) {
+      setMessages(prev => [...prev, 
+        { role: 'assistant', content: "Please connect your wallet first! Click the 'Connect Wallet' button above." }
+      ]);
+      return;
+    }
+
+    if (!agentService.current) {
+      setMessages(prev => [...prev, 
+        { role: 'assistant', content: "Service is initializing. Please try again in a moment." }
+      ]);
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      // Find market details
+      const market = derivativeMarkets.find(m => m.marketId === marketId);
+      if (!market) {
+        throw new Error("Market not found");
+      }
+      
+      // Add user message
+      const orderType = isMarket ? "market" : "limit";
+      const priceInfo = isMarket ? "" : ` at ${price}`;
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: `Processing your request to ${side} ${orderType} order for ${quantity} ${market.ticker}${priceInfo}...` 
+      }]);
+      
+      // Add a loading message
+      setMessages(prev => [...prev, { role: 'assistant', content: "Processing your order..." }]);
+      
+      // Call the derivative order service
+      const response = await agentService.current.placeDerivativeOrder(
+        marketId,
+        side,
+        quantity,
+        price,
+        isMarket
+      );
+      
+      // Replace the loading message with the order result
+      setMessages(prev => {
+        const newMessages = [...prev];
+        newMessages[newMessages.length - 1] = { 
+          role: 'assistant', 
+          content: `Your ${side} ${orderType} order for ${quantity} ${market.ticker}${priceInfo} has been placed successfully! ${response}` 
+        };
+        return newMessages;
+      });
+    } catch (error) {
+      console.error('Error placing derivative order:', error);
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: `I encountered an error while placing your order: ${error instanceof Error ? error.message : "Unknown error"}. Please try again.` 
+      }]);
+    }
+    setIsLoading(false);
+  };
+
+  const handleMarketSelection = (market: any, type: 'spot' | 'derivative') => {
+    setSelectedMarketType(type);
+    
+    // Add a message about the selected market
+    let marketInfo = "";
+    if (type === 'spot') {
+      marketInfo = `You've selected the ${market.baseToken}/${market.quoteToken} spot market. In this market, you spend ${market.quoteToken} to buy ${market.baseToken}.`;
+    } else {
+      marketInfo = `You've selected the ${market.ticker} perpetual market. This is a derivative contract where you can trade with leverage.`;
+    }
+    
+    setMessages(prev => [...prev, { 
+      role: 'assistant', 
+      content: marketInfo + " You can now place an order using the form below." 
+    }]);
+  };
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }
@@ -532,6 +1028,29 @@ export default function DashboardPage() {
     setIsLoading(true)
     setMessages(prev => [...prev, { role: 'user', content: messageText }])
     setInput("")
+
+    // Hide any UI elements that might be showing
+    setShowValidators(false);
+    setShowTokens(false);
+    setShowVaultCards(false);
+
+    // Reset card displays when submitting new message
+    setShowVaultCards(false);
+
+    // Check for passive income or earning queries
+    const lowerMessage = messageText.toLowerCase();
+    if ((lowerMessage.includes('passive') || 
+         lowerMessage.includes('earn') || 
+         lowerMessage.includes('income') || 
+         lowerMessage.includes('yield') ||
+         lowerMessage.includes('invest') ||
+         (lowerMessage.includes('make') && lowerMessage.includes('money'))) && 
+        (lowerMessage.includes('inj') || 
+         !lowerMessage.includes('validator'))) {
+      await handleCompareStakingVsVaults(true);
+      setIsLoading(false);
+      return;
+    }
 
     // Check for buy commands with dollar amount
     const buyDollarMatch = messageText.toLowerCase().match(/buy\s+\$?(\d+)(?:\.\d+)?\s+(?:worth\s+)?(?:of\s+)?inj/i);
@@ -566,10 +1085,8 @@ export default function DashboardPage() {
       const amount = stakeMatch[1];
       const validatorName = stakeMatch[2];
       
-      if (!showValidators) {
-        // First fetch validators
-        await handleStakeINJ(true);
-      }
+      // Always fetch validators to ensure we have the latest list
+      await handleStakeINJ(true);
       
       if (validatorName) {
         // Find validator by name
@@ -593,6 +1110,7 @@ export default function DashboardPage() {
     // Check for general staking commands
     if (messageText.toLowerCase().includes('stake') && 
         messageText.toLowerCase().includes('inj')) {
+      // Always call handleStakeINJ to refresh the validators
       await handleStakeINJ(true);
       setIsLoading(false);
       return;
@@ -642,43 +1160,403 @@ export default function DashboardPage() {
       return;
     }
 
+    // Check for vault commands
+    if (messageText.toLowerCase().includes('vault') || messageText.toLowerCase().includes('mito')) {
+      if (messageText.toLowerCase().includes('show') || 
+          messageText.toLowerCase().includes('list') || 
+          messageText.toLowerCase().includes('available')) {
+        await handleShowVaultsWithCards(true);
+        setIsLoading(false);
+        return;
+      }
+      if (messageText.toLowerCase().includes('highest') || 
+          messageText.toLowerCase().includes('best') || 
+          messageText.toLowerCase().includes('top')) {
+        await handleHighestAPYVault(true);
+        setIsLoading(false);
+        return;
+      }
+      if (messageText.toLowerCase().includes('compare') || 
+          messageText.toLowerCase().includes('staking')) {
+        await handleCompareStakingVsVaults(true);
+        setIsLoading(false);
+        return;
+      }
+      if (messageText.toLowerCase().includes('details')) {
+        const vaultIdMatch = messageText.match(/vault\s+([a-zA-Z0-9_]+)/i);
+        if (vaultIdMatch && vaultIdMatch[1]) {
+          const vaultId = vaultIdMatch[1];
+          await handleVaultDetails(vaultId, true);
+        } else {
+          setMessages(prev => [...prev, { 
+            role: 'assistant', 
+            content: "Please specify the vault ID for which you want to see details." 
+          }]);
+        }
+        setIsLoading(false);
+        return;
+      }
+      if (messageText.toLowerCase().includes('deposit')) {
+        // For deposit requests, show the vault cards UI
+        await handleShowVaultsWithCards(true);
+        setIsLoading(false);
+        return;
+      }
+    }
+
+    // Check for market commands
+    if (messageText.toLowerCase().includes('market')) {
+      // Prevent duplicate market display when using trade commands
+      if (messageText.toLowerCase().match(/trade\s+\d+/) || messageText.toLowerCase().match(/sell\s+\d+/)) {
+        // Skip market handling for trade/sell commands
+      } else {
+        await handleMarketCommand(messageText);
+        setIsLoading(false);
+        return;
+      }
+    }
+    // Check for test trading flow command
+    if (messageText.toLowerCase().includes('test trading') || 
+        messageText.toLowerCase().includes('test invest')) {
+      
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: `Let's test the trading flow. Here are some commands you can try:
+
+1. **View Markets**: Type "show markets" to see available markets
+2. **Trade**: Type "trade 0.01 INJ" to trade INJ
+3. **Sell**: Type "sell 0.01 INJ" to sell INJ
+
+When you use these commands, the Keplr wallet should open to sign the transaction.` 
+      }]);
+      
+      setIsLoading(false);
+      return;
+    }
+
+    // Check for agent spawning commands
+    const spawnMatch = messageText.toLowerCase().match(/spawn (\w+)(?:\s+agent)?/);
+    if (spawnMatch) {
+      const agentType = spawnMatch[1];
+      try {
+        const config = {
+          purpose: messageText, // Store the original command for context
+          createdFrom: 'dashboard'
+        };
+        
+        const agentId = await agentService.current.spawnAgent(agentType, config);
+        const agent = await agentService.current.getAgent(agentId);
+        
+        setMessages(prev => [...prev, { 
+          role: 'assistant', 
+          content: `Created new agent: ${agent.name}\nType: ${agentType}\nID: ${agentId}\n\nCapabilities:\n${agent.capabilities && agent.capabilities.length > 0 ? agent.capabilities.map(c => `- ${c}`).join('\n') : 'Loading capabilities...'}\n\nView and manage your agent in the Spawned Agents page.` 
+        }]);
+        
+        // Navigate to spawned agents page after a delay
+        setTimeout(() => {
+          navigate('/spawned-agents');
+        }, 3000);
+        
+        setIsLoading(false);
+        return;
+      } catch (error) {
+        console.error('Error spawning agent:', error);
+        setMessages(prev => [...prev, { 
+          role: 'assistant', 
+          content: `Error spawning agent: ${error instanceof Error ? error.message : String(error)}` 
+        }]);
+        setIsLoading(false);
+        return;
+      }
+    }
+
+    // Check for trading commands
+    const tradeRegex = /trade\s+(\d+(?:\.\d+)?)\s+([A-Za-z0-9/]+)/i;
+    const sellRegex = /sell\s+(\d+(?:\.\d+)?)\s+([A-Za-z0-9/]+)/i;
+    const tradeMatch = messageText.match(tradeRegex);
+    const sellMatch = messageText.match(sellRegex);
+
+    if (tradeMatch || sellMatch) {
+      const match = tradeMatch || sellMatch;
+      if (match) {
+        const side = tradeMatch ? 'buy' : 'sell';
+        const quantity = match[1];
+        let symbol = match[2].toUpperCase();
+        
+        // Handle trading pairs like ATOM/USDT
+        let baseSymbol = symbol;
+        if (symbol.includes('/')) {
+          baseSymbol = symbol.split('/')[0];
+        }
+
+        console.log(`Processing ${side} order for ${quantity} ${symbol}`);
+
+        // Find the market that matches the symbol
+        if (spotMarkets.length === 0 && derivativeMarkets.length === 0) {
+          // Fetch markets first if we don't have them yet
+          console.log("No markets loaded, fetching markets first");
+          await handleFetchMarkets();
+        }
+
+        console.log(`Looking for market matching ${symbol} in ${spotMarkets.length} spot markets and ${derivativeMarkets.length} derivative markets`);
+
+        // Debug: Log all available markets for troubleshooting
+        console.log("Available spot markets:");
+        spotMarkets.forEach(m => {
+          console.log(`- Market: ${m.ticker}, ID: ${m.marketId}, Base: ${m.baseSymbol}, Quote: ${m.quoteSymbol}`);
+        });
+
+        // Look for the market in both spot and derivative markets
+        let foundMarket;
+        let marketType: 'spot' | 'derivative' = 'spot';
+        
+        // First check spot markets
+        foundMarket = spotMarkets.find(m => {
+          // Safely check if ticker exists before accessing
+          if (!m.ticker) return false;
+          
+          const marketTicker = m.ticker.toUpperCase();
+          const searchSymbol = symbol.toUpperCase();
+          console.log(`Checking spot market: ${marketTicker} against symbol: ${searchSymbol}`);
+          
+          // For trading pairs like INJ/USDT
+          if (searchSymbol.includes('/')) {
+            // Direct comparison with ticker (case insensitive)
+            const tickerMatch = marketTicker === searchSymbol;
+            console.log(`  - Ticker match? ${tickerMatch} (${marketTicker} vs ${searchSymbol})`);
+            return tickerMatch;
+          }
+          
+          // For single token symbols like INJ
+          const baseMatch = m.baseSymbol === searchSymbol;
+          console.log(`  - Base token match? ${baseMatch} (${m.baseSymbol} vs ${searchSymbol})`);
+          
+          return baseMatch;
+        });
+
+        // If not found in spot markets, check derivative markets
+        if (!foundMarket) {
+          console.log(`Symbol ${symbol} not found in spot markets, checking derivatives`);
+          foundMarket = derivativeMarkets.find(m => {
+            // Safely check if ticker exists before accessing
+            if (!m.ticker) return false;
+            
+            const marketTicker = m.ticker.toUpperCase();
+            const searchSymbol = symbol.toUpperCase();
+            console.log(`Checking derivative market: ${marketTicker} against symbol: ${searchSymbol}`);
+            
+            // For trading pairs like ATOM/USDT
+            if (searchSymbol.includes('/')) {
+              const tickerMatch = marketTicker === searchSymbol;
+              console.log(`  - Ticker match? ${tickerMatch} (${marketTicker} vs ${searchSymbol})`);
+              return tickerMatch;
+            }
+            
+            // For single token symbols
+            const baseMatch = m.baseSymbol === searchSymbol;
+            console.log(`  - Base token match? ${baseMatch} (${m.baseSymbol} vs ${searchSymbol})`);
+            
+            return baseMatch;
+          });
+          if (foundMarket) marketType = 'derivative';
+        }
+        
+        if (foundMarket) {
+          console.log(`Found matching market: ${foundMarket.ticker}, ID: ${foundMarket.marketId}, Type: ${marketType}`);
+          
+          // Add user message about the trade
+          setMessages(prev => [...prev, { 
+            role: 'assistant', 
+            content: `Processing your request to ${tradeMatch ? 'trade' : 'sell'} ${quantity} ${symbol}...` 
+          }]);
+          
+          // Add a message showing which market was selected
+          setMessages(prev => [...prev, { 
+            role: 'assistant', 
+            content: `Selected market: ${foundMarket.ticker} (${marketType})\nMarket ID: ${foundMarket.marketId}` 
+          }]);
+
+          // Found a matching market, place the order
+          try {
+            if (marketType === 'spot') {
+              const result = await handlePlaceSpotOrder(
+                foundMarket.marketId,
+                quantity,
+                undefined, // No price for market orders
+                side as 'buy' | 'sell',
+                true // isMarket
+              );
+              
+              // Add the result message
+              setMessages(prev => [...prev, { 
+                role: 'assistant', 
+                content: result 
+              }]);
+            } else {
+              const result = await handlePlaceDerivativeOrder(
+                foundMarket.marketId,
+                quantity,
+                undefined, // No price for market orders
+                side as 'buy' | 'sell',
+                true // isMarket
+              );
+              
+              // Add the result message
+              setMessages(prev => [...prev, { 
+                role: 'assistant', 
+                content: result 
+              }]);
+            }
+          } catch (error) {
+            console.error('Error placing order:', error);
+            setMessages(prev => [...prev, { 
+              role: 'assistant', 
+              content: `Error placing order: ${error instanceof Error ? error.message : String(error)}. Please try again.` 
+            }]);
+          }
+        } else {
+          console.log(`No matching market found for ${symbol}`);
+          
+          // Provide a helpful error message
+          setMessages(prev => [...prev, { 
+            role: 'assistant', 
+            content: `I couldn't find a market for ${symbol}. Please fetch available markets first using the "Fetch Markets" button or by asking "Show me available markets".` 
+          }]);
+          
+          // Show the available markets to help the user
+          await handleFetchMarkets('spot', true);
+          setIsLoading(false);
+          return;
+        }
+      }
+    }
+
+    // Check for simple trade command without proper format
+    if (messageText.toLowerCase() === 'trade' || messageText.toLowerCase().startsWith('trade ') && !messageText.match(/trade\s+\d/)) {
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: `To trade on Injective, use this format: **trade [amount] [token]**
+
+Examples:
+- **trade 0.1 INJ** - Buy 0.1 INJ
+- **trade 0.5 ATOM** - Buy 0.5 ATOM
+- **sell 0.2 ETH** - Sell 0.2 ETH
+
+You can also specify the trading pair if needed:
+- **trade 10 ATOM/USDT** - Buy 10 ATOM with USDT`
+      }]);
+      setIsLoading(false);
+      return;
+    }
+
+    // Check for simple sell command without proper format
+    if (messageText.toLowerCase() === 'sell' || messageText.toLowerCase().startsWith('sell ') && !messageText.match(/sell\s+\d/)) {
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: `To sell on Injective, use this format: **sell [amount] [token]**
+
+Examples:
+- **sell 0.1 INJ** - Sell 0.1 INJ
+- **sell 0.5 ATOM** - Sell 0.5 ATOM
+
+You can also specify the trading pair if needed:
+- **sell 10 ATOM/USDT** - Sell 10 ATOM for USDT`
+      }]);
+      setIsLoading(false);
+      return;
+    }
+
+    // If no special commands were detected, use the AI
     try {
       if (!agentService.current) {
         setMessages(prev => [...prev, 
           { role: 'assistant', content: "Service is initializing. Please try again in a moment." }
         ]);
+        setIsLoading(false);
         return;
       }
-      const response = await agentService.current.sendMessage(messageText)
-      setMessages(prev => [...prev, { role: 'assistant', content: response }])
+      
+      const response = await agentService.current.sendMessage(messageText);
+      
+      // Check if this is a trading command that should be handled by the Dashboard
+      if (response === "TRADING_COMMAND_BYPASS") {
+        console.log("Received trading bypass marker, not displaying AI response");
+        // The trading command has already been processed above, so we don't need to do anything here
+        setIsLoading(false);
+        return;
+      }
+      
+      setMessages(prev => [...prev, { role: 'assistant', content: response }]);
+      setIsLoading(false);
     } catch (error) {
       console.error('Error:', error)
       setMessages(prev => [...prev, { role: 'assistant', content: "Error. Try again." }])
+      setIsLoading(false);
     }
-
-    setIsLoading(false)
   }
+
+  // Handle market-related commands
+  const handleMarketCommand = async (message: string) => {
+    const lowerMessage = message.toLowerCase();
+    console.log("Market command received:", lowerMessage);
+    
+    // First check for derivative markets specifically
+    if (lowerMessage.includes('derivat')) {
+      console.log("Derivative markets requested");
+      // Force derivative market type
+      setSelectedMarketType('derivative');
+      await handleFetchMarkets('derivative', true);
+      return true;
+    }
+    
+    // Then check for spot markets specifically
+    if (lowerMessage.includes('spot')) {
+      console.log("Spot markets requested");
+      // Force spot market type
+      setSelectedMarketType('spot');
+      await handleFetchMarkets('spot', true);
+      return true;
+    }
+    
+    // Generic market request - default to spot
+    if (lowerMessage.includes('market')) {
+      console.log("Generic market request - defaulting to spot");
+      setSelectedMarketType('spot');
+      await handleFetchMarkets('spot', true);
+      return true;
+    }
+    
+    return false;
+  };
 
   // Function to render token cards in the chat
   const renderTokenCards = () => {
     if (!showTokens || tokens.length === 0) return null;
     
+    // Get current page from the last message
+    const lastMessage = messages[messages.length - 1];
+    const pageMatch = lastMessage?.content?.match?.(/Page (\d+)/);
+    const currentPage = pageMatch ? parseInt(pageMatch[1]) : 1;
+    
     const pageSize = 5;
-    const startIndex = (tokenPage - 1) * pageSize;
-    const endIndex = Math.min(startIndex + pageSize, tokens.length);
-    const tokensToDisplay = tokens.slice(startIndex, endIndex);
     const totalPages = Math.ceil(tokens.length / pageSize);
+    const startIndex = (currentPage - 1) * pageSize;
+    const endIndex = Math.min(startIndex + pageSize, tokens.length);
+    const currentPageTokens = tokens.slice(startIndex, endIndex);
+    
+    // Get network type
+    const isTestnet = lastMessage?.content?.includes?.('Testnet') || false;
     
     return (
-      <div className="mt-4 mb-4">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-          {tokensToDisplay.map((token) => (
+      <div className="token-cards mt-4">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          {currentPageTokens.map((token) => (
             <div 
               key={token.denom} 
-              className="bg-white p-3 rounded-lg shadow-sm border border-gray-100 relative"
+              className="bg-white p-4 rounded-lg shadow-sm border border-gray-100 flex flex-col items-center text-center"
             >
               {token.logoUrl && (
-                <div className="absolute top-3 right-3 w-8 h-8">
+                <div className="w-12 h-12 mb-2 bg-gray-100 rounded-full flex items-center justify-center overflow-hidden">
                   <img 
                     src={token.logoUrl} 
                     alt={token.symbol} 
@@ -688,13 +1566,13 @@ export default function DashboardPage() {
               )}
               <div className="font-medium text-black">{token.symbol}</div>
               <div className="text-xs text-gray-500">{token.name}</div>
-              <div className="text-xs text-gray-400 flex items-center mt-1">
-                <div className="truncate mr-2" title={token.denom}>
-                  {token.denom.length > 20 ? `${token.denom.substring(0, 20)}...` : token.denom}
+              <div className="text-xs text-gray-400 flex items-center mt-1 w-full justify-center">
+                <div className="truncate max-w-[80%]" title={token.denom}>
+                  {token.denom.length > 15 ? `${token.denom.substring(0, 15)}...` : token.denom}
                 </div>
                 <button 
                   onClick={() => copyToClipboard(token.denom)}
-                  className="text-gray-500 hover:text-black"
+                  className="text-gray-500 hover:text-black ml-1 flex-shrink-0"
                 >
                   {copiedDenom === token.denom ? <Check size={14} /> : <Copy size={14} />}
                 </button>
@@ -714,20 +1592,18 @@ export default function DashboardPage() {
             <Button 
               variant="outline" 
               size="sm"
-              disabled={tokenPage === 1}
               onClick={() => handleTokenPagination('prev')}
             >
               Previous
             </Button>
             
             <span className="text-sm text-gray-500">
-              Page {tokenPage} of {totalPages}
+              Page {currentPage} of {totalPages}
             </span>
             
             <Button 
               variant="outline" 
               size="sm"
-              disabled={tokenPage >= totalPages}
               onClick={() => handleTokenPagination('next')}
             >
               Next
@@ -740,10 +1616,10 @@ export default function DashboardPage() {
           <Button 
             variant="outline" 
             size="sm"
-            onClick={() => handleGetAllTokens(false, tokenNetwork === "mainnet")}
+            onClick={() => handleGetAllTokens(false, !isTestnet)}
             className="text-xs"
           >
-            Switch to {tokenNetwork === "mainnet" ? "Testnet" : "Mainnet"} Tokens
+            Switch to {isTestnet ? 'Mainnet' : 'Testnet'} Tokens
           </Button>
         </div>
       </div>
@@ -802,6 +1678,450 @@ export default function DashboardPage() {
     );
   };
 
+  // Function to render vault cards
+  const renderVaultCards = () => {
+    if (!showVaultCards || vaultsList.length === 0) return null;
+    
+    return (
+      <div className="mt-4 mb-4 overflow-x-auto">
+        <div className="flex flex-nowrap gap-3 pb-2" style={{ minWidth: "100%" }}>
+          {vaultsList.map((vault) => (
+            <div 
+              key={vault.id} 
+              className="bg-white p-4 rounded-lg shadow-sm border border-gray-100 relative overflow-hidden cursor-pointer hover:bg-gray-50 flex-shrink-0"
+              style={{ width: "280px" }}
+              onClick={() => {
+                // Prompt for amount when vault is clicked
+                const amount = prompt(`How much INJ do you want to deposit into ${vault.name}?`, "20");
+                if (amount) {
+                  handleRealVaultDeposit(vault.id, amount);
+                  setShowVaultCards(false);
+                }
+              }}
+            >
+              {/* APY Badge */}
+              <div className="absolute top-0 right-0 bg-green-500 text-white px-3 py-1 rounded-bl-lg font-bold">
+                {vault.apy.toFixed(2)}% APY
+              </div>
+              
+              <div className="flex items-center mb-3">
+                <div className="w-10 h-10 mr-3">
+                  <img 
+                    src={vault.imageUrl || 'https://raw.githubusercontent.com/cosmos/chain-registry/master/injective/images/inj.png'} 
+                    alt={vault.name} 
+                    className="w-full h-full object-contain rounded-full"
+                  />
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-lg">{vault.name}</div>
+                  <div className="text-xs text-gray-500">{vault.pairSymbol || vault.symbol}</div>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <div className="bg-gray-50 p-2 rounded">
+                  <div className="text-xs text-gray-500">TVL</div>
+                  <div className="font-medium">${(vault.tvl / 1000000).toFixed(2)}M</div>
+                </div>
+                <div className="bg-gray-50 p-2 rounded">
+                  <div className="text-xs text-gray-500">Risk</div>
+                  <div className="font-medium">{vault.riskLevel}</div>
+                </div>
+              </div>
+              
+              <div className="text-xs text-gray-500 mb-2">
+                <span className="font-medium">Strategy:</span> {vault.strategy}
+              </div>
+              
+              <div className="text-xs text-gray-400 flex items-center">
+                <div className="truncate mr-2" title={vault.id}>
+                  ID: {vault.id}
+                </div>
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    copyToClipboard(vault.id);
+                  }}
+                  className="text-gray-500 hover:text-black"
+                >
+                  {copiedDenom === vault.id ? <Check size={14} /> : <Copy size={14} />}
+                </button>
+              </div>
+              
+              <div className="mt-3 text-center">
+                <Button 
+                  size="sm" 
+                  className="bg-black text-white w-full"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const amount = prompt(`How much INJ do you want to deposit into ${vault.name}?`, "20");
+                    if (amount) {
+                      handleRealVaultDeposit(vault.id, amount);
+                      setShowVaultCards(false);
+                    }
+                  }}
+                >
+                  Deposit
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  // Function to render market cards
+  const renderMarketCards = () => {
+    if (!marketList || marketList.length === 0) {
+      console.log("No markets to display");
+      return null;
+    }
+
+    console.log(`Rendering markets: ${selectedMarketType}, count: ${marketList.length}`);
+    
+    const marketsPerPage = 4;
+    const startIndex = (currentMarketPage - 1) * marketsPerPage;
+    const endIndex = Math.min(startIndex + marketsPerPage, marketList.length);
+    const currentPageMarkets = marketList.slice(startIndex, endIndex);
+    const marketType = selectedMarketType === 'spot' ? 'Spot' : 'Derivative';
+    const networkName = agentService.current?.getCurrentNetwork() === Network.Mainnet ? 'Mainnet' : 'Testnet';
+
+    return (
+      <>
+        <div className="mb-4">
+          <h3 className="text-lg font-semibold">{marketType} Markets on {networkName}</h3>
+          <p className="text-sm text-gray-500">Page {currentMarketPage} of {Math.ceil(marketList.length / marketsPerPage)}</p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 my-4">
+          {currentPageMarkets.map((market: any, index: number) => {
+            console.log(`Rendering market ${index}:`, market);
+            return (
+              <div key={index} className="border rounded-lg p-4 bg-white shadow-sm">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center">
+                    <img 
+                      src={market.baseImage} 
+                      alt={market.baseSymbol || 'Unknown'} 
+                      className="w-8 h-8 mr-2 rounded-full"
+                      onError={(e: any) => {
+                        e.target.src = 'https://raw.githubusercontent.com/cosmos/chain-registry/master/injective/images/inj.png';
+                      }}
+                    />
+                    <div>
+                      <div className="font-medium">{market.ticker || 'Unknown Market'}</div>
+                      <div className="text-xs text-gray-500">{market.marketType || marketType}</div>
+                    </div>
+                  </div>
+                  <div className={`${parseFloat(market.priceChange || '0') >= 0 ? 'text-green-600' : 'text-red-600'} font-medium`}>
+                    {parseFloat(market.priceChange || '0') >= 0 ? '+' : ''}{parseFloat(market.priceChange || '0').toFixed(2)}%
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-sm mb-3">
+                  <div>
+                    <p className="text-gray-500">Price</p>
+                    <p className="font-medium">
+                      {parseFloat(market.price || '0').toFixed(6)} {market.quoteSymbol || 'USDT'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Volume (24h)</p>
+                    <p className="font-medium">
+                      {parseFloat(market.volume || '0').toFixed(2)} {market.quoteSymbol || 'USDT'}
+                    </p>
+                  </div>
+                </div>
+                <div className="text-xs text-gray-500 truncate" title={market.marketId}>Market ID: {market.marketId || 'Unknown'}</div>
+                <div className="mt-2 text-xs">
+                  <span className="text-blue-600 cursor-pointer">Trade: {market.ticker || 'Unknown Market'}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {marketList.length > marketsPerPage && (
+          <div className="flex justify-center space-x-2 mt-4">
+            <button 
+              onClick={() => setCurrentMarketPage(prev => prev > 1 ? prev - 1 : Math.ceil(marketList.length / marketsPerPage))}
+              className="px-3 py-1 text-sm bg-gray-100 rounded hover:bg-gray-200"
+            >
+              Previous
+            </button>
+            
+            <span className="px-3 py-1 text-sm">
+              Page {currentMarketPage} of {Math.ceil(marketList.length / marketsPerPage)}
+            </span>
+            
+            <button 
+              onClick={() => setCurrentMarketPage(prev => prev < Math.ceil(marketList.length / marketsPerPage) ? prev + 1 : 1)}
+              className="px-3 py-1 text-sm bg-gray-100 rounded hover:bg-gray-200"
+            >
+              Next
+            </button>
+          </div>
+        )}
+      </>
+    );
+  };
+
+  const handleNextPage = () => {
+    if (currentMarketPage < Math.ceil(marketList.length / marketsPerPage)) {
+      setCurrentMarketPage(currentMarketPage + 1);
+    } else {
+      // Loop back to first page
+      setCurrentMarketPage(1);
+    }
+  };
+
+  const handlePreviousPage = () => {
+    if (currentMarketPage > 1) {
+      setCurrentMarketPage(currentMarketPage - 1);
+    } else {
+      // Loop back to last page
+      setCurrentMarketPage(Math.ceil(marketList.length / marketsPerPage));
+    }
+  };
+
+  const handleGoToPage = (pageNumber: number) => {
+    const totalPages = Math.ceil(marketList.length / marketsPerPage);
+    if (pageNumber > 0 && pageNumber <= totalPages) {
+      setCurrentMarketPage(pageNumber);
+    } else {
+      setMessages(prev => [...prev, { role: 'assistant', content: `Invalid page number. Please enter a page number between 1 and ${totalPages}.` }]);
+    }
+  };
+
+  const handleSpotOrderCommand = (command: string) => {
+    // Extract order details from command
+    // Format: "place spot order buy/sell [quantity] [market name]"
+    const orderRegex = /(?:place\s+spot\s+order|spot\s+)(buy|sell)\s+(\d+(?:\.\d+)?)\s+(.+)/i;
+    const match = command.match(orderRegex);
+    
+    if (!match) {
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: 'Invalid spot order format. Please use: "place spot order buy/sell [quantity] [market name]" or "spot buy/sell [quantity] [market name]"' 
+      }]);
+      return;
+    }
+    
+    const orderSide = match[1].toLowerCase();
+    const quantity = parseFloat(match[2]);
+    const marketName = match[3].trim();
+    
+    // Find the market in our list
+    const market = spotMarkets.find(m => 
+      m.name.toLowerCase() === marketName.toLowerCase() || 
+      `${m.baseToken}/${m.quoteToken}`.toLowerCase() === marketName.toLowerCase()
+    );
+    
+    if (!market) {
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: `Could not find spot market "${marketName}". Please check the market name and try again.` 
+      }]);
+      return;
+    }
+    
+    // Confirm the order
+    setMessages(prev => [...prev, { 
+      role: 'assistant', 
+      content: `Preparing to place a ${orderSide} order for ${quantity} ${market.baseToken} on ${market.name} spot market.` 
+    }]);
+    
+    // Place the order
+    placeSpotOrder(market.marketId, orderSide, quantity, market);
+  };
+  
+  const handleDerivativeOrderCommand = (command: string) => {
+    // Extract order details from command
+    // Format: "place derivative order buy/sell [quantity] [market name]"
+    const orderRegex = /(?:place\s+derivative\s+order|derivative\s+)(buy|sell)\s+(\d+(?:\.\d+)?)\s+(.+)/i;
+    const match = command.match(orderRegex);
+    
+    if (!match) {
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: 'Invalid derivative order format. Please use: "place derivative order buy/sell [quantity] [market name]" or "derivative buy/sell [quantity] [market name]"' 
+      }]);
+      return;
+    }
+    
+    const orderSide = match[1].toLowerCase();
+    const quantity = parseFloat(match[2]);
+    const marketName = match[3].trim();
+    
+    // Find the market in our list
+    const market = derivativeMarkets.find(m => 
+      m.name.toLowerCase() === marketName.toLowerCase() || 
+      `${m.baseToken}/${m.quoteToken}`.toLowerCase() === marketName.toLowerCase()
+    );
+    
+    if (!market) {
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: `Could not find derivative market "${marketName}". Please check the market name and try again.` 
+      }]);
+      return;
+    }
+    
+    // Confirm the order
+    setMessages(prev => [...prev, { 
+      role: 'assistant', 
+      content: `Preparing to place a ${orderSide} order for ${quantity} contracts on ${market.name} derivative market.` 
+    }]);
+    
+    // Place the order
+    placeDerivativeOrder(market.marketId, orderSide, quantity, market);
+  };
+  
+  const placeSpotOrder = async (marketId: string, orderSide: string, quantity: number, market: any) => {
+    if (!agentService.current) {
+      setMessages(prev => [...prev, 
+        { role: 'assistant', content: "Service is initializing. Please try again in a moment." }
+      ]);
+      return;
+    }
+    
+    try {
+      setIsLoading(true);
+      
+      // Get current price as a reference
+      const price = parseFloat(market.price);
+      
+      // Adjust price slightly to ensure the order gets filled (market orders)
+      const adjustedPrice = orderSide === 'buy' ? price * 1.01 : price * 0.99;
+      
+      // Place the order
+      const response = await agentService.current.placeSpotOrder({
+        marketId,
+        orderType: 'MARKET',
+        orderSide: orderSide.toUpperCase(),
+        price: adjustedPrice.toString(),
+        quantity: quantity.toString(),
+      });
+      
+      setMessages(prev => {
+        const newMessages = [...prev];
+        newMessages[newMessages.length - 1] = { 
+          role: 'assistant', 
+          content: `Your ${orderSide} order for ${quantity} ${market.baseToken} on ${market.name} spot market has been placed successfully! ${response}` 
+        };
+        return newMessages;
+      });
+    } catch (error) {
+      console.error('Error placing spot order:', error);
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: `I encountered an error while placing your order: ${error instanceof Error ? error.message : "Unknown error"}. Please try again.` 
+      }]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
+  const placeDerivativeOrder = async (marketId: string, orderSide: string, quantity: number, market: any) => {
+    if (!agentService.current) {
+      setMessages(prev => [...prev, 
+        { role: 'assistant', content: "Service is initializing. Please try again in a moment." }
+      ]);
+      return;
+    }
+    
+    try {
+      setIsLoading(true);
+      
+      // Get current price as a reference
+      const price = parseFloat(market.price);
+      
+      // Adjust price slightly to ensure the order gets filled (market orders)
+      const adjustedPrice = orderSide === 'buy' ? price * 1.01 : price * 0.99;
+      
+      // Place the order
+      const response = await agentService.current.placeDerivativeOrder({
+        marketId,
+        orderType: 'MARKET',
+        orderSide: orderSide.toUpperCase(),
+        price: adjustedPrice.toString(),
+        quantity: quantity.toString(),
+      });
+      
+      setMessages(prev => {
+        const newMessages = [...prev];
+        newMessages[newMessages.length - 1] = { 
+          role: 'assistant', 
+          content: `Your ${orderSide} order for ${quantity} contracts on ${market.name} derivative market has been placed successfully! ${response}` 
+        };
+        return newMessages;
+      });
+    } catch (error) {
+      console.error('Error placing derivative order:', error);
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: `I encountered an error while placing your order: ${error instanceof Error ? error.message : "Unknown error"}. Please try again.` 
+      }]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleShowMarkets = async (marketType: 'spot' | 'derivative' = 'spot') => {
+    try {
+      setIsLoading(true);
+      setSelectedMarketType(marketType);
+      
+      if (!agentService.current) {
+        setMessages(prev => [...prev, 
+          { role: 'assistant', content: "Service is initializing. Please try again in a moment." }
+        ]);
+        setIsLoading(false);
+        return;
+      }
+      
+      // Get current network
+      const currentNetwork = agentService.current?.getCurrentNetwork();
+      const networkName = currentNetwork === Network.Mainnet ? "Mainnet" : "Testnet";
+      
+      // Use the updated fetchAndLogMarkets function to get formatted market data
+      const marketData = await agentService.current.fetchAndLogMarkets(marketType);
+      console.log(`Formatted ${marketType} markets:`, marketData);
+      
+      // Set the markets based on type
+      if (marketType === 'spot') {
+        setSpotMarkets(marketData.markets);
+      } else {
+        setDerivativeMarkets(marketData.markets);
+      }
+      
+      // Set the market list
+      setMarketList(marketData.markets);
+      
+      // Show markets
+      setShowMarkets(true);
+      
+      // Update the last message to show markets
+      setMessages(prev => {
+        const newMessages = [...prev];
+        newMessages[newMessages.length - 1] = { 
+          role: 'assistant', 
+          content: `Here are the available ${marketType} markets on ${networkName}` 
+        };
+        return newMessages;
+      });
+      
+      // Reset current page
+      setCurrentMarketPage(1);
+    } catch (error) {
+      console.error('Error showing markets:', error);
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: "I encountered an error while fetching the markets. Please try again later." 
+      }]);
+    }
+    
+    setIsLoading(false);
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       <WalletConnect setAddress={setAddress}/>
@@ -830,8 +2150,25 @@ export default function DashboardPage() {
               // Check if this is a token display message
               const isTokenDisplayMessage = 
                 message.role === 'assistant' && 
+                typeof message.content === 'string' &&
                 message.content.includes('tokens on Injective') && 
                 message.content.includes('Page');
+              
+              // Check if this is a vault display message
+              const isVaultDisplayMessage =
+                message.role === 'assistant' &&
+                typeof message.content === 'string' &&
+                message.content.includes('vault') &&
+                (message.content.includes('APY') || message.content.includes('Vaults'));
+              
+              // Check if this is a market display message
+              const isMarketDisplayMessage =
+                message.role === 'assistant' &&
+                typeof message.content === 'string' &&
+                (message.content.includes('available markets') || 
+                 message.content.includes('available spot markets') || 
+                 message.content.includes('available derivative markets') ||
+                 message.content.includes('Here are the available'));
               
               return (
                 <div key={i} className={`flex ${message.role === 'assistant' ? 'justify-start' : 'justify-end'}`}>
@@ -843,12 +2180,23 @@ export default function DashboardPage() {
                     {/* For token display messages, only show the header */}
                     {isTokenDisplayMessage ? (
                       <div>
-                        {message.content}
+                        {typeof message.content === 'string' ? message.content : JSON.stringify(message.content)}
                         {i === messages.length - 1 && showTokens && renderTokenCards()}
+                      </div>
+                    ) : isVaultDisplayMessage ? (
+                      <div>
+                        {typeof message.content === 'string' ? message.content : JSON.stringify(message.content)}
+                        {i === messages.length - 1 && showVaultCards && renderVaultCards()}
+                      </div>
+                    ) : isMarketDisplayMessage ? (
+                      <div>
+                        {typeof message.content === 'string' ? message.content : JSON.stringify(message.content)}
+                        {i === messages.length - 1 && showMarkets && renderMarketCards()}
                       </div>
                     ) : (
                       <div>
-                        {message.content}
+                        {typeof message.content === 'string' ? message.content : 
+                         (typeof message.content === 'object' ? JSON.stringify(message.content) : String(message.content))}
                         {message.role === 'assistant' && i === messages.length - 1 && showValidators && renderValidatorCards()}
                       </div>
                     )}
@@ -892,8 +2240,7 @@ export default function DashboardPage() {
               <Button 
                 key="get-price" 
                 variant="outline" 
-                size="sm" 
-                className="rounded-full"
+                size="sm"
                 onClick={() => handleGetINJPrice()}
               >
                 INJ Price
@@ -901,8 +2248,7 @@ export default function DashboardPage() {
               <Button 
                 key="mainnet-tokens" 
                 variant="outline" 
-                size="sm" 
-                className="rounded-full"
+                size="sm"
                 onClick={() => handleGetAllTokens(false, false)}
               >
                 Mainnet Tokens
@@ -910,11 +2256,18 @@ export default function DashboardPage() {
               <Button 
                 key="testnet-tokens" 
                 variant="outline" 
-                size="sm" 
-                className="rounded-full"
+                size="sm"
                 onClick={() => handleGetAllTokens(false, true)}
               >
                 Testnet Tokens
+              </Button>
+              <Button 
+                key="fetch-markets" 
+                variant="outline" 
+                size="sm"
+                onClick={() => handleFetchMarkets()}
+              >
+                Fetch Markets
               </Button>
             </div>
           </div>
@@ -924,7 +2277,7 @@ export default function DashboardPage() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
-              placeholder="Try: Buy $20 worth of INJ"
+              placeholder="Try: Trade $20 worth of INJ"
               className="w-full pl-12 pr-12 py-10 h-32 bg-white border-gray-200 rounded-xl shadow-sm text-lg"
               disabled={isLoading}
             />

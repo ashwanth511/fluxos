@@ -5,7 +5,7 @@ export const navigationConfig = {
     { icon: Home, label: "Home", path: "/dashboard" },
     { icon: Workflow, label: " Builder", path: "/builder" },
     { icon: Wallet, label: "Wallet", path: "/wallet" },
-  
+    { icon: Bot, label: "Spawned Agents", path: "/spawned-agents" },
     { icon: Rocket, label: "Launch", path: "/token" },
     { icon: Brain, label: "AI Agents", path: "/tokens" },
     { icon: Settings, label: "Settings", path: "/settings" },
